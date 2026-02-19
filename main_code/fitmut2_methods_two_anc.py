@@ -14,7 +14,10 @@ from tqdm import tqdm
 
 
 # fitness inference object
-class FitMut:
+class FitMut_two_anc:
+    # 2/26: In this version of the code, you specify A and B populations.
+    # B is the HIGHER FITNESS strain.
+    # delta_s is the fitness advantage of B compared to A.
     def __init__(self, r_seq,
                        t_list,
                        cell_depth_list,
@@ -25,17 +28,31 @@ class FitMut:
                        max_iter_num,
                        parallelize,
                        save_steps,
-                       output_filename):
+                       output_filename,
+                       ancestor_labels,
+                       delta_s,
+                       kappa_value=2.5):
         
         # preparing inputs
-        self.r_seq = r_seq
-        self.read_depth_seq = np.sum(self.r_seq, axis=0)
-        self.lineages_num = np.shape(self.r_seq)[0]
-        self.t_list = t_list
-        self.seq_num = len(self.t_list)
-        self.cell_depth_list = cell_depth_list
+        self.r_seq = r_seq  # read counts per lineage per timepoint
+        self.read_depth_seq = np.sum(self.r_seq, axis=0)    # total reads per timepoint
+        self.lineages_num = np.shape(self.r_seq)[0]         # number of lineages
+        self.t_list = t_list    # time in generations
+        self.seq_num = len(self.t_list)     # number of timepoints
+        self.cell_depth_list = cell_depth_list  # effective cell numbers
+        
+        # Feb 2026: Store ancestor information
+        self.ancestor_labels = ancestor_labels  # Array like ['A', 'B', 'A', 'B', ...]
+        self.delta_s = delta_s                  # Number like 0.02 (2% advantage for strain B)
+        # Feb 2026: Create boolean masks for convenience
+        self.is_ancestor_A = (ancestor_labels == 'A')  # True/False array
+        self.is_ancestor_B = (ancestor_labels == 'B')  # True/False array
+    
+        # convert reads to estimated cells:
         self.ratio = self.read_depth_seq/self.cell_depth_list
         self.n_seq = self.r_seq / self.ratio
+        # Use kappa constant:
+        self.kappa_constant = kappa_value
 
         # eliminates zeros from data for later convenience -- also have to modify theoretical model
         # in order to not classify neutrals as adaptive
@@ -69,7 +86,7 @@ class FitMut:
         self.mutant_fraction_dict = dict() # fraction of mutatant cells at each iteration
         
         self.iteration_stop_threhold = 5e-7 # threshold for terminating iterations
-        self.threshold_adaptive = 0.6#0.9 # threshold for determining an adaptive lineage
+        self.threshold_adaptive = 0.3#0.9 # threshold for determining an adaptive lineage
         self.iter_timing_list = [] # running time for each iteration
 
         # define some variables for convenient vectorization computing
@@ -119,12 +136,16 @@ class FitMut:
         mean and variance of distribution of read number for 
         neutral lineages.
         """
-        self.kappa_seq = np.nan * np.zeros(self.seq_num, dtype=float)
-        self.kappa_seq[0] = 2.5
+        #self.kappa_seq = np.nan * np.zeros(self.seq_num, dtype=float)
+        #self.kappa_seq[0] = 2.5
+        
+        # Keep kappa at 2.5:
+        self.kappa_seq = self.kappa_constant * np.ones(self.seq_num, dtype=float)
 
+        """
         for k in range(self.seq_num-1):
             
-            """
+            
             r_t1_left, r_t1_right = 20, 40 # neutral lineages with read numbers in [20, 40)
             r_t2_left, r_t2_right = 0, 4*r_t1_right
         
@@ -146,15 +167,13 @@ class FitMut:
                 
                 if np.sum(~np.isnan(kappa)): # if not all values of kappa are nan
                     self.kappa_seq[k+1] = np.nanmean(kappa)
-                """
-            # Keep kappa at 2.5:
-            self.kappa_seq[k+1] = self.kappa_seq[0]
                 
-                         
+                       
         pos_nan = np.isnan(self.kappa_seq)
         if np.sum(pos_nan): # if there is nan type in self.kappa_seq
             self.kappa_seq[pos_nan] = np.nanmean(self.kappa_seq) # define the value as the mean of all non-nan
             
+        """
         
 
     ##########
@@ -194,7 +213,15 @@ class FitMut:
         Output: established_size (scalar)
         """
         s_mean_tau = np.interp(tau, self.t_list_extend, self.s_mean_seq_extend)
-        established_size = self.noise_c / np.maximum(s - s_mean_tau, 0.005)
+        
+        # 2/26: For B lineages, s is the gain, so total fitness = delta_s + s
+        if self.lineage_ancestor == 'B':
+            total_fitness = self.delta_s + s
+        else:
+            total_fitness = s
+        
+        #established_size = self.noise_c / np.maximum(s - s_mean_tau, 0.005)
+        established_size = self.noise_c / np.maximum(total_fitness - s_mean_tau, 0.005)
 
         return established_size
 
@@ -212,9 +239,16 @@ class FitMut:
         tau_len = len(tau_array)
 
         s_matrix = np.transpose(np.tile(s_array, (tau_len, 1)), (1,0))
+        
+        # 2/26: For B lineages, s is the gain, so total fitness = delta_s + s
+        if self.lineage_ancestor == 'B':
+            total_fitness_matrix = s_matrix + self.delta_s
+        else:
+            total_fitness_matrix = s_matrix
 
         s_mean_tau = np.tile(np.interp(tau_array, self.t_list_extend, self.s_mean_seq_extend), (s_len, 1)) #(s_len, tau_len)
-        established_size = self.noise_c / np.maximum(s_matrix - s_mean_tau, 0.005)
+        #established_size = self.noise_c / np.maximum(s_matrix - s_mean_tau, 0.005)
+        established_size = self.noise_c / np.maximum(total_fitness_matrix - s_mean_tau, 0.005)
 
         return established_size
 
@@ -240,19 +274,37 @@ class FitMut:
         E_extend_tau = np.interp(tau, self.t_list_extend, self.E_extend)
         
         for k in range(self.seq_num):
+            # For each timepoint, calculate lineage growth, split between mutant/unmutant cells:
             E_tk_minus_tau = self.E_extend_t_list[k]/E_extend_tau
-            mutant1 = np.exp(s * (self.t_list[k] - tau))
+            #mutant1 = np.exp(s * (self.t_list[k] - tau))
+            # 2/26: For B lineages, mutants have total fitness = delta_s + s
+            if self.lineage_ancestor == 'B':
+                mutant1 = np.exp((self.delta_s + s) * (self.t_list[k] - tau))
+            else:
+                mutant1 = np.exp(s * (self.t_list[k] - tau))
             mutant2 = established_size*mutant1
             mutant3 = mutant2*E_tk_minus_tau                      
             mutant_n_theory[k] = np.minimum(mutant3, n_obs[k])
             
             unmutant_n_theory[k] = n_obs[k] - mutant_n_theory[k]
 
+            # Calcuate lineage size for next timepoint:
             if k > 0:
                 E_tk_minus_tkminus1 = self.E_t_list[k-1]
                 #E_tk_minus_tkminus1 = self.E_extend_t_list[k] / self.E_extend_t_list[k-1]
-                growth_fac = np.exp(s* (self.t_list[k] - self.t_list[k-1]))
-                lineage_size0 = unmutant_n_theory[k-1] + mutant_n_theory[k-1]*growth_fac
+                dt = self.t_list[k] - self.t_list[k-1]  # time between timepoints
+                #mutant_growth = np.exp(s * dt)          # mutant growth factor (same for A & B)
+                #growth_fac = np.exp(s* (self.t_list[k] - self.t_list[k-1]))
+                
+            # 2/26: For B lineages, both unmutants and mutants have different growth
+                if self.lineage_ancestor == 'B':
+                    unmutant_growth = np.exp(self.delta_s * dt)
+                    mutant_growth = np.exp((self.delta_s + s) * dt)
+                    lineage_size0 = (unmutant_n_theory[k-1] * unmutant_growth + mutant_n_theory[k-1] * mutant_growth)
+                else:  # A
+                    mutant_growth = np.exp(s * dt)
+                    lineage_size0 = (unmutant_n_theory[k-1] + mutant_n_theory[k-1] * mutant_growth)
+                
                 n_theory[k] = lineage_size0 * E_tk_minus_tkminus1
             
         return {'cell_number': n_theory,'mutant_cell_number': mutant_n_theory}
@@ -287,7 +339,15 @@ class FitMut:
         
         for k in range(self.seq_num):
             E_tk_minus_tau = self.E_extend_t_list[k]/E_extend_tau
-            mutant1 = np.exp(s_matrix * (self.t_list[k] - tau_matrix))
+            #mutant1 = np.exp(s_matrix * (self.t_list[k] - tau_matrix))
+            # 2/26: For B lineages, mutants have total fitness = delta_s + s
+            if self.lineage_ancestor == 'B':
+                total_fitness_matrix = s_matrix + self.delta_s
+            else:
+                total_fitness_matrix = s_matrix
+            
+            mutant1 = np.exp(total_fitness_matrix * (self.t_list[k] - tau_matrix))
+            
             mutant2 = established_size*mutant1
             mutant3 = mutant2*E_tk_minus_tau                     
             mutant_n_theory[:,:,k] = np.minimum(mutant3, n_obs[:,:,k])
@@ -297,8 +357,24 @@ class FitMut:
             if k > 0:
                 E_tk_minus_tkminus1 = self.E_t_list[k-1]
                 #E_tk_minus_tkminus1 = self.E_extend_t_list[k] / self.E_extend_t_list[k-1]
-                growth_fac = np.exp(s_matrix * (self.t_list[k] - self.t_list[k-1]))
-                lineage_size0 = unmutant_n_theory[:,:,k-1] + mutant_n_theory[:,:,k-1]*growth_fac
+                #growth_fac = np.exp(s_matrix * (self.t_list[k] - self.t_list[k-1]))
+                # 2/26: modify for B lineages:
+                dt = self.t_list[k] - self.t_list[k-1]
+                #growth_fac = np.exp(s_matrix * dt)
+                
+                #lineage_size0 = unmutant_n_theory[:,:,k-1] + mutant_n_theory[:,:,k-1]*growth_fac
+                # 2/26: For B lineages, both unmutants and mutants have different growth
+                if self.lineage_ancestor == 'B':
+                    total_fitness_matrix = s_matrix + self.delta_s
+                    unmutant_growth = np.exp(self.delta_s * dt)
+                    growth_fac = np.exp(total_fitness_matrix * dt)
+                    lineage_size0 = (unmutant_n_theory[:,:,k-1] * unmutant_growth + 
+                                    mutant_n_theory[:,:,k-1] * growth_fac)
+                else:  # A
+                    growth_fac = np.exp(s_matrix * dt)
+                    lineage_size0 = (unmutant_n_theory[:,:,k-1] + 
+                                    mutant_n_theory[:,:,k-1] * growth_fac)
+                
                 n_theory[:,:,k] = lineage_size0 * E_tk_minus_tkminus1
     
         return {'cell_number': n_theory,'mutant_cell_number': mutant_n_theory}
@@ -329,7 +405,7 @@ class FitMut:
         part4 = np.log(special.ive(1, ive_arg)) + ive_arg
 
         log_likelihood_seq_lineage = np.log(kappa_inverse) + part2 + part3 + part4
-        log_likelihood_lineage = np.sum(log_likelihood_seq_lineage, axis=0)
+        log_likelihood_lineage = np.sum(log_likelihood_seq_lineage, axis=0)     # sum over all timepoints
 
         return log_likelihood_lineage
         
@@ -450,7 +526,14 @@ class FitMut:
         self.r_seq_lineage = self.r_seq[i, :]
         self.n_seq_lineage = self.n_seq[i, :]
         
+        # 2/26: Set which ancestor this lineage is from
+        self.lineage_ancestor = self.ancestor_labels[i]  # 'A' or 'B'
+        
         p_ratio_log_adaptive,s_idx,tau_idx = self.log_ratio_adaptive_integral(self.s_bin, self.tau_bin)
+        # Calculate prob(neutral):
+        # For A lineage: s=0 means fitness = 0
+        # For B lineage: s=0 means no NEW mutation, but fitness = delta_s
+        #   (n_theory_scalar automatically handles B via self.lineage_ancestor)
         p_ratio_log_neutral = self.loglikelihood_scalar(0, 0)
         
         p_ratio_log = p_ratio_log_adaptive - p_ratio_log_neutral
@@ -638,13 +721,41 @@ class FitMut:
         self.mutant_fraction_numerator = np.zeros(self.seq_num, dtype=float)
         self.s_mean_numerator = np.zeros(self.seq_num, dtype=float)
         self.mutant_n_seq_theory = np.zeros(np.shape(self.r_seq), dtype=float)
-       
+        
+        # Loop over adaptive lineages:
         for i in self.idx_adaptive_inferred_index:
             self.r_seq_lineage = self.r_seq[i, :]
             self.n_seq_lineage = self.n_seq[i, :]
-            self.mutant_n_seq_theory[i,:] = self.n_theory_scalar(self.result_s[i], self.result_tau[i])['mutant_cell_number']
-            self.s_mean_numerator += self.mutant_n_seq_theory[i,:] * self.result_s[i]
+            self.lineage_ancestor = self.ancestor_labels[i]  # 2/26: need this for n_theory_scalar
+            
+            mutant_n = self.n_theory_scalar(self.result_s[i], self.result_tau[i])['mutant_cell_number']
+            self.mutant_n_seq_theory[i,:] = mutant_n
+            
+            # 2/26: Contribution to mean fitness depends on ancestor:
+            if self.lineage_ancestor == 'A':
+                # A mutants have fitness s (relative to A reference)
+                fitness_contribution = mutant_n * self.result_s[i]
+            else:  # 'B'
+                # B mutants have fitness delta_s + s (background + mutation gain)
+                fitness_contribution = mutant_n * (self.delta_s + self.result_s[i])
+            
+            #self.s_mean_numerator += self.mutant_n_seq_theory[i,:] * self.result_s[i]
+            self.s_mean_numerator += fitness_contribution # 2/26: Above line uses self.result_s[i] only, ignoring the ancestor
             self.mutant_fraction_numerator += self.mutant_n_seq_theory[i,:]
+            
+            # 2/26: For B lineages, also count UNMUTANT B cells
+            if self.lineage_ancestor == 'B':
+                unmutant_B_n = self.n_seq[i, :] - mutant_n
+                unmutant_B_contribution = unmutant_B_n * self.delta_s
+                self.s_mean_numerator += unmutant_B_contribution
+            
+        # 2/26: Add contribution from NEUTRAL B lineages
+        for i in range(self.lineages_num):
+            # Check if this is a neutral B lineage
+            if (self.ancestor_labels[i] == 'B' and i not in self.idx_adaptive_inferred_index):
+                # All cells in neutral B lineage contribute delta_s
+                neutral_B_contribution = self.n_seq[i, :] * self.delta_s
+                self.s_mean_numerator += neutral_B_contribution
         
         self.s_mean_seq_dict[k_iter] = self.s_mean_numerator/self.cell_depth_list
         self.mutant_fraction_dict[k_iter] = self.mutant_fraction_numerator/self.cell_depth_list
