@@ -63,7 +63,7 @@ for k in range(tmpts):
     
     track_freqs[k,:] = X_initial/X_initial.sum()
     
-    X_final = solve_ivp(dX_dt_log_multi, t_span, X_initial, args=(all_fits,K,delta,L))
+    X_final = solve_ivp(dX_dt_log_multi, t_span, X_initial, args=(all_fits,K,delta))
     
     weights = X_final.y[:, -1]
     p = weights / weights.sum() # normalize
@@ -83,26 +83,55 @@ plt.tight_layout()
 plt.show()
 
 #%% Save data:
-    
-input_file = pd.DataFrame(np.transpose(track_freqs)*K/DF)
+sequencing_depth = 5e6  # 5 million reads per timepoint
+read_counts = np.zeros([tmpts, L])
+for k in range(tmpts):
+    reads = np.random.multinomial(int(sequencing_depth), track_freqs[k,:])
+    read_counts[k,:] = reads
 
-input_file.to_csv('test_input.csv',header=None,index=None)
+input_file = pd.DataFrame(np.transpose(read_counts))
+input_file.to_csv('test_input.csv', header=None, index=None)
 
-time_seqs = np.zeros([tmpts,2])
-time_seqs[:,0] = np.log(100)/np.log(2)*(np.arange(tmpts)+1)
-time_seqs[:,1] = (K/DF)*np.log(100)/np.log(2)
+delta_t_gen = np.log2(100)  # 6.64 generations per cycle
+
+time_seqs = np.zeros([tmpts, 2])
+time_seqs[:, 0] = delta_t_gen * np.arange(tmpts)  # [0, 6.64, 13.28, ...]
+time_seqs[:, 1] = (K/DF) * delta_t_gen             # effective cell number
 
 time_file = pd.DataFrame(time_seqs)
 time_file.to_csv('test_time.csv',header=None,index=None)
 
 #%% Check FitMut results against ground truth:
     
+### (RUN WITH: python main_code/fitmut2_run.py -i test/test_input.csv -t test/test_time.csv -o test)
+    
 fitmut_results = pd.read_csv('../test_MutSeq_Result.csv')
 
-plt.scatter(all_fits-0.4, fitmut_results['Fitness'])
-plt.plot(xlim := plt.xlim(), xlim, '--k')
+# Calculate TRUE fitness
+true_s = (all_fits - r_anc) / r_anc
 
+# Get FitMut2 inferred fitness
+inferred_s = fitmut_results['Fitness'].values
+
+# Separate mutants and neutrals for visualization
+mutant_mask = np.arange(L) < num_muts
+neutral_mask = ~mutant_mask
+
+# Plot
+plt.figure(figsize=(8, 8))
+plt.scatter(true_s[mutant_mask], inferred_s[mutant_mask], alpha=0.5, c='red', label='mutants')
+plt.scatter(true_s[neutral_mask], inferred_s[neutral_mask], alpha=0.2, c='gray', label='neutrals')
+plt.plot(xlim := plt.xlim(), xlim, '--k')
+plt.xlabel('True fitness (per generation)')
+plt.ylabel('Inferred fitness (per generation)')
+plt.legend()
+plt.grid(alpha=0.3)
+plt.tight_layout()
 plt.show()
+
+print(f"Mutants detected: {(inferred_s[mutant_mask] > 0).sum()}/{num_muts}")
+print(f"Neutrals called adaptive: {(inferred_s[neutral_mask] > 0).sum()}/{L-num_muts}")
+print(f"\nMean bias (mutants): {(inferred_s[mutant_mask] - true_s[mutant_mask]).mean():.4f}")
 
 #%% TWO ANCESTORS
 
@@ -176,13 +205,6 @@ plt.yscale("log")   # optional but usually useful
 plt.tight_layout()
 plt.show()
 
-#%%
-
-plt.plot(X_final.t,X_final.y.sum(0))
-plt.yscale('log')
-plt.show()
-
-
 #%% Save data:
     
 sequencing_depth = 5e6  # 5 million reads per timepoint
@@ -218,10 +240,52 @@ print(f"Empirical delta_s: {delta_s_empirical:.4f}")
 
 #%% Check FitMut_two_anc results against ground truth:
     
+# (RUN WITH: python main_code/fitmut2_run_two_anc.py -i test/test_input_two_anc.csv -t test/test_time_two_anc.csv -al test/test_ancestor_labels.csv -dt 6.64 -ds 0.0337 -o test_two_anc)
+    
 fitmut_results = pd.read_csv('../test_two_anc_MutSeq_Result.csv')
 
-plt.scatter(all_fits[0:L1]-0.4, fitmut_results['Fitness'][0:L1],c='r',alpha=0.05)
-plt.scatter(all_fits[L1:L1+L2]-0.42, fitmut_results['Fitness'][L1:L1+L2],c='b')
-plt.plot(xlim := plt.xlim(), xlim, '--k')
+# Calculate TRUE fitness for each ancestor
+true_s_A = (all_fits[:L1] / r_anc1) - 1  # A lineages
+true_s_B = (all_fits[L1:] / r_anc2) - 1  # B lineages
+true_s = np.concatenate([true_s_A, true_s_B])
 
+# Get FitMut2 inferred fitness
+inferred_s = fitmut_results['Fitness'].values
+
+# Separate A and B, mutants and neutrals
+A_mutant_mask = np.arange(L1) < num_muts1
+A_neutral_mask = ~A_mutant_mask
+B_mutant_mask = np.arange(L2) < num_muts2
+B_neutral_mask = ~B_mutant_mask
+
+# Plot
+plt.figure(figsize=(8, 8))
+
+# A lineages
+plt.scatter(true_s[:L1][A_mutant_mask], inferred_s[:L1][A_mutant_mask], alpha=0.5, c='red', label='A mutants')
+plt.scatter(true_s[:L1][A_neutral_mask], inferred_s[:L1][A_neutral_mask], alpha=0.2, c='gray', label='A neutrals')
+
+# B lineages
+plt.scatter(true_s[L1:][B_mutant_mask], inferred_s[L1:][B_mutant_mask], alpha=0.5, c='blue', label='B mutants')
+plt.scatter(true_s[L1:][B_neutral_mask], inferred_s[L1:][B_neutral_mask], alpha=0.2, c='gray', label='B neutrals')
+
+plt.plot(xlim := plt.xlim(), xlim, '--k')
+plt.xlabel('True fitness (relative to own ancestor)')
+plt.ylabel('Inferred fitness')
+plt.legend()
+plt.grid(alpha=0.3)
+plt.tight_layout()
 plt.show()
+
+
+print(f"\nAncestor A:")
+print(f"  Mutants detected: {(inferred_s[:L1][A_mutant_mask] > 0).sum()}/{num_muts1}")
+print(f"  Neutrals called adaptive: {(inferred_s[:L1][A_neutral_mask] > 0).sum()}/{L1-num_muts1}")
+
+print(f"\nAncestor B:")
+print(f"  Mutants detected: {(inferred_s[L1:][B_mutant_mask] > 0).sum()}/{num_muts2}")
+print(f"  Neutrals called adaptive: {(inferred_s[L1:][B_neutral_mask] > 0).sum()}/{L2-num_muts2}")
+
+print(f"\n=== Bias ===")
+print(f"A mutants mean bias: {(inferred_s[:L1][A_mutant_mask] - true_s[:L1][A_mutant_mask]).mean():.4f}")
+print(f"B mutants mean bias: {(inferred_s[L1:][B_mutant_mask] - true_s[L1:][B_mutant_mask]).mean():.4f}")

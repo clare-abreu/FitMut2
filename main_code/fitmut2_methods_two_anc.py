@@ -41,10 +41,10 @@ class FitMut_two_anc:
         self.seq_num = len(self.t_list)     # number of timepoints
         self.cell_depth_list = cell_depth_list  # effective cell numbers
         
-        # Feb 2026: Store ancestor information
+        # 2/26: Store ancestor information
         self.ancestor_labels = ancestor_labels  # Array like ['A', 'B', 'A', 'B', ...]
         self.delta_s = delta_s                  # Number like 0.02 (2% advantage for strain B)
-        # Feb 2026: Create boolean masks for convenience
+        # 2/26: Create boolean masks for convenience
         self.is_ancestor_A = (ancestor_labels == 'A')  # True/False array
         self.is_ancestor_B = (ancestor_labels == 'B')  # True/False array
     
