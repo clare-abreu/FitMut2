@@ -1038,6 +1038,11 @@ class FitMut_two_anc_sub:
             self.n_seq_lineage = self.n_seq[i, :]
             self.lineage_ancestor = self.ancestor_labels[i]  # 2/26: need this for n_theory_scalar
             
+            # 2/26 update: For subdivided, also set other environment data
+            if self.is_subdivided:
+                self.n_seq_lineage_other = self.n_seq_other[i, :]
+                self.current_lineage_index = i
+            
             mutant_n = self.n_theory_scalar(self.result_s[i], self.result_tau[i])['mutant_cell_number']
             self.mutant_n_seq_theory[i,:] = mutant_n
             
