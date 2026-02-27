@@ -235,6 +235,12 @@ class FitMut_two_anc:
                 tau_array (array, vector) 
         Output: established_size (array, 2D matrix)
         """
+        
+        # Debug:
+        if not hasattr(self, '_debug_delta_s'):
+            print(f"DEBUG: self.delta_s = {self.delta_s}, self.reference_ancestor = {getattr(self, 'reference_ancestor', 'N/A')}")
+            self._debug_delta_s = True
+    
         s_len = len(s_array)
         tau_len = len(tau_array)
 
@@ -247,6 +253,14 @@ class FitMut_two_anc:
             total_fitness_matrix = s_matrix
 
         s_mean_tau = np.tile(np.interp(tau_array, self.t_list_extend, self.s_mean_seq_extend), (s_len, 1)) #(s_len, tau_len)
+        
+        # Debug:
+        if not hasattr(self, '_debug_s_mean_tau'):
+            s_idx = np.argmin(np.abs(s_array - 0.10))
+            tau_idx = np.argmin(np.abs(tau_array - 130))
+            print(f"  s_mean_tau at tau=130: {s_mean_tau[s_idx, tau_idx]:.6f}")
+            self._debug_s_mean_tau = True
+            
         #established_size = self.noise_c / np.maximum(s_matrix - s_mean_tau, 0.005)
         established_size = self.noise_c / np.maximum(total_fitness_matrix - s_mean_tau, 0.005)
 
@@ -334,6 +348,14 @@ class FitMut_two_anc:
         unmutant_n_theory = np.zeros((s_len, tau_len, self.seq_num), dtype=float)
             
         established_size = self.establishment_size_array(s_array, tau_array) #(s_len, tau_len)
+        
+        # Debug
+        if not hasattr(self, '_debug_est_size'):
+            self._debug_est_size = True
+            # Find the grid point closest to s=0.10, tau=130
+            s_idx = np.argmin(np.abs(s_array - 0.10))
+            tau_idx = np.argmin(np.abs(tau_array - 130))
+            print(f"  Est size at s={s_array[s_idx]}, tau={tau_array[tau_idx]}: {established_size[s_idx, tau_idx]:.2f}")
         
         E_extend_tau = np.tile(np.interp(tau_array, self.t_list_extend, self.E_extend), (s_len, 1)) #(s_len, tau_len)
         
@@ -499,6 +521,17 @@ class FitMut_two_anc:
         Also returns the indices of s and tau in the input arrays which gave the highest probability
         """
         integrand_log = self.posterior_loglikelihood_array(s_array, tau_array)
+        
+        # Debug: for lineage 0 only
+        if not hasattr(self, '_debug_printed_lineage_0'):
+            self._debug_printed_lineage_0 = False
+        
+        if not self._debug_printed_lineage_0:
+            max_val = np.max(integrand_log)
+            s_idx, tau_idx = np.unravel_index(np.argmax(integrand_log), np.shape(integrand_log))
+            print(f"  Lineage 0 Grid max: {max_val:.2f} at s={s_array[s_idx]:.4f}, tau={tau_array[tau_idx]:.1f}")
+            self._debug_printed_lineage_0 = True
+        
         log_amp_factor = -np.max(integrand_log) + 2
         amp_integrand = np.exp(integrand_log + log_amp_factor)
 
@@ -536,6 +569,11 @@ class FitMut_two_anc:
         #   (n_theory_scalar automatically handles B via self.lineage_ancestor)
         p_ratio_log_neutral = self.loglikelihood_scalar(0, 0)
         
+        # Debug: print neutral trajectory for first lineage
+        if i == 0:
+            neutral_traj = self.n_theory_scalar(0, 0)['cell_number']
+            print(f"Lineage 0 neutral trajectory: t=0: {neutral_traj[0]:.1f}, t=5: {neutral_traj[5]:.1f}, t=10: {neutral_traj[10]:.1f}, t=19: {neutral_traj[19]:.1f}")
+                
         p_ratio_log = p_ratio_log_adaptive - p_ratio_log_neutral
         if p_ratio_log <= 40:
             p_ratio = np.exp(p_ratio_log)
@@ -574,6 +612,11 @@ class FitMut_two_anc:
 
         else:
             s_opt, tau_opt = 0, 0
+            
+        # DEBUG:
+        if i < 5:  # First 5 lineages
+            print(f"Lineage {i} ({self.lineage_ancestor}): p_adaptive={p_adaptive:.4f}, s_opt={s_opt:.4f}, tau_opt={tau_opt:.1f}")
+
                 
         return [p_adaptive, s_opt, tau_opt]
 
@@ -731,6 +774,15 @@ class FitMut_two_anc:
             mutant_n = self.n_theory_scalar(self.result_s[i], self.result_tau[i])['mutant_cell_number']
             self.mutant_n_seq_theory[i,:] = mutant_n
             
+            # Debug: print for first few adaptive lineages in iteration 2
+            if k_iter == 2 and len(self.s_mean_numerator) > 0:
+                if i == self.idx_adaptive_inferred_index[0]:  # First adaptive lineage
+                    print(f"DEBUG iter 2, lineage {i}: s={self.result_s[i]:.4f}, tau={self.result_tau[i]:.1f}, ancestor={self.lineage_ancestor}")
+                    print(f"  mutant_n at t=0: {mutant_n[0]:.1f}, at t=10: {mutant_n[10]:.1f}")
+                if i == self.idx_adaptive_inferred_index[1]:  # Second adaptive lineage
+                    print(f"DEBUG iter 2, lineage {i}: s={self.result_s[i]:.4f}, tau={self.result_tau[i]:.1f}, ancestor={self.lineage_ancestor}")
+                    print(f"  mutant_n at t=0: {mutant_n[0]:.1f}, at t=10: {mutant_n[10]:.1f}")
+            
             # 2/26: Contribution to mean fitness depends on ancestor:
             if self.lineage_ancestor == 'A':
                 # A mutants have fitness s (relative to A reference)
@@ -861,6 +913,10 @@ class FitMut_two_anc:
             self.calculate_E()
             self.run_iteration()
             self.update_mean_fitness(k_iter)
+            
+            # Debug: print mean fitness
+            if k_iter <= 3:  # Just first 3 iterations
+                print(f"DEBUG iteration {k_iter}: mean fitness at t=0: {self.s_mean_seq_dict[k_iter][0]:.6f}, at t=10: {self.s_mean_seq_dict[k_iter][10]:.6f}")
 
             if self.save_steps == True:
                 output_label = '_intermediate_s_' + str(k_iter)

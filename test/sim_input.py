@@ -172,7 +172,9 @@ weights = pre_fits
 p = weights / weights.sum() # normalize
 n = K/DF
 X_initial = np.random.multinomial(n, p)
-track_freqs = np.zeros([tmpts,L])
+# CORRECTED: tmpts+1 rows to match subdivided data structure
+track_freqs = np.zeros([tmpts+1,L])
+track_freqs[0,:] = X_initial/X_initial.sum()  # Timepoint 0
 
 for k in range(tmpts):
     for j in range(len(mut_times1)):
@@ -182,16 +184,19 @@ for k in range(tmpts):
         if mut_times2[j] == k:
             all_fits[L1+j] = mut_fits2[j]
     
-    track_freqs[k,:] = X_initial/X_initial.sum()
+    #track_freqs[k,:] = X_initial/X_initial.sum()
     
     X_final = solve_ivp(dX_dt_log_multi, t_span, X_initial, args=(all_fits,K,delta))
+    
+    # Record AFTER growth
+    track_freqs[k+1,:] = X_final.y[:, -1]/X_final.y[:, -1].sum()
     
     weights = X_final.y[:, -1]
     p = weights / weights.sum() # normalize
     n = K/DF
     X_initial = np.random.multinomial(n, p)
     
-time = np.arange(tmpts)
+time = np.arange(tmpts+1)
 
 plt.figure(figsize=(6, 4))
 for i in range(L1):
@@ -208,8 +213,8 @@ plt.show()
 #%% Save data:
     
 sequencing_depth = 5e6  # 5 million reads per timepoint
-read_counts = np.zeros([tmpts, L])
-for k in range(tmpts):
+read_counts = np.zeros([tmpts+1, L])
+for k in range(tmpts+1):
     reads = np.random.multinomial(int(sequencing_depth), track_freqs[k,:])
     read_counts[k,:] = reads
 
@@ -218,8 +223,8 @@ input_file.to_csv('test_input_two_anc.csv', header=None, index=None)
 
 delta_t_gen = np.log2(100)  # 6.64 generations per cycle
 
-time_seqs = np.zeros([tmpts, 2])
-time_seqs[:, 0] = delta_t_gen * np.arange(tmpts)  # [0, 6.64, 13.28, ...]
+time_seqs = np.zeros([tmpts+1, 2])
+time_seqs[:, 0] = delta_t_gen * np.arange(tmpts+1)  # [0, 6.64, 13.28, ...]
 time_seqs[:, 1] = (K/DF) * delta_t_gen             # effective cell number
 
 time_file = pd.DataFrame(time_seqs)
@@ -237,6 +242,9 @@ log_ratio = np.log(freq_B_total / freq_A_total)
 generations = delta_t_gen * np.arange(early_tmpts)
 delta_s_empirical = np.polyfit(generations, log_ratio, 1)[0]
 print(f"Empirical delta_s: {delta_s_empirical:.4f}")
+
+# Save final fitness values for later
+all_fits_final = all_fits.copy()
 
 #%% Check FitMut_two_anc results against ground truth:
     
@@ -289,3 +297,90 @@ print(f"  Neutrals called adaptive: {(inferred_s[L1:][B_neutral_mask] > 0).sum()
 print(f"\n=== Bias ===")
 print(f"A mutants mean bias: {(inferred_s[:L1][A_mutant_mask] - true_s[:L1][A_mutant_mask]).mean():.4f}")
 print(f"B mutants mean bias: {(inferred_s[L1:][B_mutant_mask] - true_s[L1:][B_mutant_mask]).mean():.4f}")
+
+
+#%% CHECK WITH SUBDIVIDED CODE:
+    
+# Recreate variables from two-ancestor simulation
+L1 = 25000
+L2 = 25000
+num_muts1 = 500
+num_muts2 = 500
+r_anc1 = 0.4
+r_anc2 = 0.42
+
+# Recreate masks
+A_mutant_mask = np.arange(L1) < num_muts1
+A_neutral_mask = ~A_mutant_mask
+B_mutant_mask = np.arange(L2) < num_muts2
+B_neutral_mask = ~B_mutant_mask
+
+# Recreate all_fits (need the actual fitness values from the simulation)
+# If you saved them, load them. Otherwise, re-run the two-ancestor simulation section first
+all_fits = np.concatenate([
+    np.concatenate([mut_fits1, r_anc1 * np.ones(L1 - num_muts1)]),
+    np.concatenate([mut_fits2, r_anc2 * np.ones(L2 - num_muts2)])
+])
+
+# Load results from subdivided code (is_subdivided=False)
+fitmut_results_subcode = pd.read_csv('../test_nosub_subdcode_nosubdivided_MutSeq_Result.csv')
+
+# Calculate TRUE fitness
+true_s_A = (all_fits[:L1] / r_anc1) - 1
+true_s_B = (all_fits[L1:] / r_anc2) - 1
+true_s = np.concatenate([true_s_A, true_s_B])
+    
+# Load results from subdivided code (is_subdivided=False)
+fitmut_results_subcode = pd.read_csv('../test_nosub_subdcode_nosubdivided_MutSeq_Result.csv')
+
+# Calculate TRUE fitness (same as before)
+true_s_A = (all_fits[:L1] / r_anc1) - 1
+true_s_B = (all_fits[L1:] / r_anc2) - 1
+true_s = np.concatenate([true_s_A, true_s_B])
+
+# Get inferred fitness
+inferred_s_subcode = fitmut_results_subcode['Fitness'].values
+
+# Create comparison plot
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
+
+# Left: Original code results (from before)
+fitmut_results_original = pd.read_csv('../test_two_anc_MutSeq_Result.csv')  # Your earlier good results
+inferred_s_original = fitmut_results_original['Fitness'].values
+
+ax1.scatter(true_s[:L1][A_mutant_mask], inferred_s_original[:L1][A_mutant_mask], 
+           alpha=0.5, s=20, c='red', label='A mutants')
+ax1.scatter(true_s[:L1][A_neutral_mask], inferred_s_original[:L1][A_neutral_mask], 
+           alpha=0.2, s=10, c='pink', label='A neutrals')
+ax1.scatter(true_s[L1:][B_mutant_mask], inferred_s_original[L1:][B_mutant_mask], 
+           alpha=0.5, s=20, c='blue', label='B mutants')
+ax1.scatter(true_s[L1:][B_neutral_mask], inferred_s_original[L1:][B_neutral_mask], 
+           alpha=0.2, s=10, c='lightblue', label='B neutrals')
+ax1.plot([0, 0.15], [0, 0.15], '--k')
+ax1.set_xlabel('True fitness')
+ax1.set_ylabel('Inferred fitness')
+ax1.set_title('Original two-ancestor code')
+ax1.legend()
+ax1.grid(alpha=0.3)
+
+# Right: Subdivided code (is_subdivided=False)
+ax2.scatter(true_s[:L1][A_mutant_mask], inferred_s_subcode[:L1][A_mutant_mask], 
+           alpha=0.5, s=20, c='red', label='A mutants')
+ax2.scatter(true_s[:L1][A_neutral_mask], inferred_s_subcode[:L1][A_neutral_mask], 
+           alpha=0.2, s=10, c='pink', label='A neutrals')
+ax2.scatter(true_s[L1:][B_mutant_mask], inferred_s_subcode[L1:][B_mutant_mask], 
+           alpha=0.5, s=20, c='blue', label='B mutants')
+ax2.scatter(true_s[L1:][B_neutral_mask], inferred_s_subcode[L1:][B_neutral_mask], 
+           alpha=0.2, s=10, c='lightblue', label='B neutrals')
+ax2.plot([0, 0.15], [0, 0.15], '--k')
+ax2.set_xlabel('True fitness')
+ax2.set_ylabel('Inferred fitness')
+ax2.set_title('Subdivided code (is_subdivided=False)')
+ax2.legend()
+ax2.grid(alpha=0.3)
+
+plt.tight_layout()
+plt.show()
+
+
+

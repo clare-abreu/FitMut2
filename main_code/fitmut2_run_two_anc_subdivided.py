@@ -45,9 +45,9 @@ parser.add_argument('-omf', '--other_mean_fitness', default=None,
 # Optional parameters
 parser.add_argument('-kappa', '--kappa_value', type=float, default=2.5,
                    help='Kappa value for noise model (default: 2.5)')
-parser.add_argument('-c', '--noise_c', type=float, default=2e-3,
-                   help='Noise per generation (default: 2e-3)')
-parser.add_argument('-Ub', '--Ub', type=float, default=1e-8,
+parser.add_argument('-c', '--noise_c', type=float, default=1,
+                   help='Noise per generation (default: 1)')
+parser.add_argument('-Ub', '--Ub', type=float, default=1e-5,
                    help='Beneficial mutation rate (default: 1e-8)')
 parser.add_argument('--max_iter', type=int, default=100,
                    help='Maximum iterations (default: 100)')
