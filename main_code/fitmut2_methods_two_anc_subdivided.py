@@ -60,7 +60,7 @@ def calculate_delta_s_mix(delta_s_E1, delta_s_E2):
 # fitness inference object
 class FitMut_two_anc_sub:
     # 2/26: In this version of the code, you specify A and B populations.
-    # B is the HIGHER FITNESS strain.
+    # Either A or B can be the HIGHER FITNESS strain.
     # delta_s is the fitness advantage of B compared to A.
     def __init__(self, r_seq,
                        t_list,
@@ -77,6 +77,7 @@ class FitMut_two_anc_sub:
                        delta_s,
                        kappa_value=2.5,
                        # 2/26 update: new parameters for subdivided envs:
+                       delta_s_other=None,
                        is_subdivided=False,
                        r_seq_other=None,    # counts from other env
                        other_env_params=None,   # # for step 2 fitness inference refinement
@@ -98,6 +99,16 @@ class FitMut_two_anc_sub:
         self.delta_s = abs(delta_s)
         self.reference_ancestor = 'A' if delta_s >= 0 else 'B'
         
+        # Store other environment's delta_s and reference ancestor
+        if delta_s_other is not None:
+            self.delta_s_other_signed = delta_s_other
+            self.delta_s_other = abs(delta_s_other)
+            self.reference_ancestor_other = 'A' if delta_s_other >= 0 else 'B'
+        else:
+            self.delta_s_other_signed = None
+            self.delta_s_other = None
+            self.reference_ancestor_other = None
+
         # 2/26 update: Subdivided environment parameters:
         self.is_subdivided = is_subdivided
         
@@ -364,14 +375,19 @@ class FitMut_two_anc_sub:
             s_mean_tau_other = np.interp(tau_other, self.t_list_extend, 
                                            self.s_mean_seq_extend)
         
-        # Calculate total fitness in other environment
-        # Note: The OTHER environment might have different reference ancestor!
-        # For now, assume same reference ancestor logic applies
-        # (This is a simplification - we could pass reference_ancestor_other if needed)
-        if self.lineage_ancestor == self.reference_ancestor:
-            total_fitness_other = s_other
+        # Calculate total fitness in OTHER environment's coordinate system
+        if self.reference_ancestor_other is not None:
+            # We know the other environment's reference frame
+            if self.lineage_ancestor == self.reference_ancestor_other:
+                total_fitness_other = s_other
+            else:
+                total_fitness_other = s_other + self.delta_s_other
         else:
-            total_fitness_other = self.delta_s + s_other
+            # Fallback for when delta_s_other not provided
+            if self.lineage_ancestor == self.reference_ancestor:
+                total_fitness_other = s_other
+            else:
+                total_fitness_other = s_other + self.delta_s
         
         # Establishment size
         est_size = self.noise_c / np.maximum(total_fitness_other - s_mean_tau_other, 0.005)
@@ -445,7 +461,7 @@ class FitMut_two_anc_sub:
         if self.lineage_ancestor == self.reference_ancestor:
             total_fitness = s
         else:
-            total_fitness = self.delta_s + s
+            total_fitness = s + self.delta_s
         
         #established_size = self.noise_c / np.maximum(s - s_mean_tau, 0.005)
         established_size = self.noise_c / np.maximum(total_fitness - s_mean_tau, 0.005)
@@ -463,9 +479,9 @@ class FitMut_two_anc_sub:
         """
         
         # Debug:
-        if not hasattr(self, '_debug_delta_s'):
-            print(f"DEBUG: self.delta_s = {self.delta_s}, self.reference_ancestor = {getattr(self, 'reference_ancestor', 'N/A')}")
-            self._debug_delta_s = True
+        #if not hasattr(self, '_debug_delta_s'):
+        #    print(f"DEBUG: self.delta_s = {self.delta_s}, self.reference_ancestor = {getattr(self, 'reference_ancestor', 'N/A')}")
+        #    self._debug_delta_s = True
             
         s_len = len(s_array)
         tau_len = len(tau_array)
@@ -480,12 +496,22 @@ class FitMut_two_anc_sub:
 
         s_mean_tau = np.tile(np.interp(tau_array, self.t_list_extend, self.s_mean_seq_extend), (s_len, 1)) #(s_len, tau_len)
         
+        # Debug mean fitness at tau=0
+        if not hasattr(self, '_debug_mean_fitness_tau0'):
+            tau_idx_0 = np.argmin(np.abs(tau_array - 0))
+            print(f"\nDEBUG MEAN FITNESS:")
+            print(f"  tau=0: s_mean_tau = {s_mean_tau[0, tau_idx_0]:.6f}")
+            print(f"  This lineage ancestor: {self.lineage_ancestor}")
+            print(f"  Reference ancestor: {self.reference_ancestor}")
+            print(f"  delta_s: {self.delta_s}")
+            self._debug_mean_fitness_tau0 = True
+        
         # Debug:
-        if not hasattr(self, '_debug_s_mean_tau'):
-            s_idx = np.argmin(np.abs(s_array - 0.10))
-            tau_idx = np.argmin(np.abs(tau_array - 130))
-            print(f"  s_mean_tau at tau=130: {s_mean_tau[s_idx, tau_idx]:.6f}")
-            self._debug_s_mean_tau = True
+        #if not hasattr(self, '_debug_s_mean_tau'):
+        #    s_idx = np.argmin(np.abs(s_array - 0.10))
+        #    tau_idx = np.argmin(np.abs(tau_array - 130))
+        #    print(f"  s_mean_tau at tau=130: {s_mean_tau[s_idx, tau_idx]:.6f}")
+        #    self._debug_s_mean_tau = True
         
         #established_size = self.noise_c / np.maximum(s_matrix - s_mean_tau, 0.005)
         established_size = self.noise_c / np.maximum(total_fitness_matrix - s_mean_tau, 0.005)
@@ -521,7 +547,7 @@ class FitMut_two_anc_sub:
             if self.lineage_ancestor == self.reference_ancestor:
                 mutant1 = np.exp(s * (self.t_list[k] - tau))
             else:
-                mutant1 = np.exp((self.delta_s + s) * (self.t_list[k] - tau))
+                mutant1 = np.exp((s + self.delta_s) * (self.t_list[k] - tau))
             mutant2 = established_size*mutant1
             mutant3 = mutant2*E_tk_minus_tau                      
             mutant_n_theory[k] = np.minimum(mutant3, n_obs[k])
@@ -562,13 +588,11 @@ class FitMut_two_anc_sub:
                     # Grow from mix in this environment
                     # 2/26 update: Use reference_ancestor logic instead of checking for 'B'
                     if self.lineage_ancestor == self.reference_ancestor:
-                        # Reference ancestor (no background advantage)
                         unmutant_growth = 1.0
                         mutant_growth = np.exp(s * dt)
                     else:
-                        # Non-reference ancestor (has background advantage delta_s)
                         unmutant_growth = np.exp(self.delta_s * dt)
-                        mutant_growth = np.exp((self.delta_s + s) * dt)
+                        mutant_growth = np.exp((s + self.delta_s) * dt)
                     
                     lineage_size0 = (n_mix_unmutant * unmutant_growth + 
                                     n_mix_mutant * mutant_growth)
@@ -577,12 +601,11 @@ class FitMut_two_anc_sub:
                     # Original two-ancestor logic (no mixing)
                     if self.lineage_ancestor == self.reference_ancestor:
                         mutant_growth = np.exp(s * dt)
-                        lineage_size0 = (unmutant_n_theory[k-1] +  mutant_n_theory[k-1] * mutant_growth)
+                        lineage_size0 = (unmutant_n_theory[k-1] + mutant_n_theory[k-1] * mutant_growth)
                     else:
                         unmutant_growth = np.exp(self.delta_s * dt)
-                        mutant_growth = np.exp((self.delta_s + s) * dt)
-                        lineage_size0 = (unmutant_n_theory[k-1] * unmutant_growth + 
-                        mutant_n_theory[k-1] * mutant_growth)
+                        mutant_growth = np.exp((s + self.delta_s) * dt)
+                        lineage_size0 = (unmutant_n_theory[k-1] * unmutant_growth + mutant_n_theory[k-1] * mutant_growth)
                     
                     #lineage_size0 = (unmutant_n_theory[k-1] * unmutant_growth + mutant_n_theory[k-1] * mutant_growth)
                 
@@ -617,12 +640,12 @@ class FitMut_two_anc_sub:
         established_size = self.establishment_size_array(s_array, tau_array) #(s_len, tau_len)
         
         # Debug
-        if not hasattr(self, '_debug_est_size'):
-            self._debug_est_size = True
-            # Find the grid point closest to s=0.10, tau=130
-            s_idx = np.argmin(np.abs(s_array - 0.10))
-            tau_idx = np.argmin(np.abs(tau_array - 130))
-            print(f"  Est size at s={s_array[s_idx]}, tau={tau_array[tau_idx]}: {established_size[s_idx, tau_idx]:.2f}")
+        #if not hasattr(self, '_debug_est_size'):
+        #    self._debug_est_size = True
+        #    # Find the grid point closest to s=0.10, tau=130
+        #    s_idx = np.argmin(np.abs(s_array - 0.10))
+        #    tau_idx = np.argmin(np.abs(tau_array - 130))
+        #    print(f"  Est size at s={s_array[s_idx]}, tau={tau_array[tau_idx]}: {established_size[s_idx, tau_idx]:.2f}")
         
         E_extend_tau = np.tile(np.interp(tau_array, self.t_list_extend, self.E_extend), (s_len, 1)) #(s_len, tau_len)
         
@@ -715,6 +738,16 @@ class FitMut_two_anc_sub:
                 tau (scalar) 
         Output: log-likelihood value of all time points (scalar)
         """        
+        
+        # ---- DEBUG: likelihood fitness mapping ----
+        #if np.random.rand() < 0.0001:
+        #    print("\nDEBUG LIKELIHOOD INPUT")
+        #    print("ancestor label:", self.lineage_ancestor)
+        #    print("reference ancestor:", self.reference_ancestor)
+        #    print("delta_s:", self.delta_s)
+        #    print("mutation fitness s:", s)
+        # -------------------------------------------
+        
         n_theory = self.n_theory_scalar(s, tau)['cell_number']
         r_theory = n_theory*self.ratio
 
@@ -827,14 +860,14 @@ class FitMut_two_anc_sub:
         integrand_log = self.posterior_loglikelihood_array(s_array, tau_array)
         
         # Debug: for lineage 0 only
-        if not hasattr(self, '_debug_printed_lineage_0'):
-            self._debug_printed_lineage_0 = False
+        #if not hasattr(self, '_debug_printed_lineage_0'):
+        #    self._debug_printed_lineage_0 = False
         
-        if not self._debug_printed_lineage_0:
-            max_val = np.max(integrand_log)
-            s_idx, tau_idx = np.unravel_index(np.argmax(integrand_log), np.shape(integrand_log))
-            print(f"  Lineage 0 Grid max: {max_val:.2f} at s={s_array[s_idx]:.4f}, tau={tau_array[tau_idx]:.1f}")
-            self._debug_printed_lineage_0 = True
+        #if not self._debug_printed_lineage_0:
+        #    max_val = np.max(integrand_log)
+        #    s_idx, tau_idx = np.unravel_index(np.argmax(integrand_log), np.shape(integrand_log))
+        #    print(f"  Lineage 0 Grid max: {max_val:.2f} at s={s_array[s_idx]:.4f}, tau={tau_array[tau_idx]:.1f}")
+        #    self._debug_printed_lineage_0 = True
         
         log_amp_factor = -np.max(integrand_log) + 2
         amp_integrand = np.exp(integrand_log + log_amp_factor)
@@ -879,9 +912,9 @@ class FitMut_two_anc_sub:
         p_ratio_log_neutral = self.loglikelihood_scalar(0, 0)
         
         # Debug: print neutral trajectory for first lineage
-        if i == 0:
-            neutral_traj = self.n_theory_scalar(0, 0)['cell_number']
-            print(f"Lineage 0 neutral trajectory: t=0: {neutral_traj[0]:.1f}, t=5: {neutral_traj[5]:.1f}, t=10: {neutral_traj[10]:.1f}, t=19: {neutral_traj[19]:.1f}")
+        #if i == 0:
+        #    neutral_traj = self.n_theory_scalar(0, 0)['cell_number']
+        #    print(f"Lineage 0 neutral trajectory: t=0: {neutral_traj[0]:.1f}, t=5: {neutral_traj[5]:.1f}, t=10: {neutral_traj[10]:.1f}, t=19: {neutral_traj[19]:.1f}")
                 
         p_ratio_log = p_ratio_log_adaptive - p_ratio_log_neutral
         if p_ratio_log <= 40:
@@ -923,8 +956,8 @@ class FitMut_two_anc_sub:
             s_opt, tau_opt = 0, 0
             
         # DEBUG:
-        if i < 5:  # First 5 lineages
-            print(f"Lineage {i} ({self.lineage_ancestor}): p_adaptive={p_adaptive:.4f}, s_opt={s_opt:.4f}, tau_opt={tau_opt:.1f}")
+        #if i < 5:  # First 5 lineages
+        #    print(f"Lineage {i} ({self.lineage_ancestor}): p_adaptive={p_adaptive:.4f}, s_opt={s_opt:.4f}, tau_opt={tau_opt:.1f}")
 
                 
         return [p_adaptive, s_opt, tau_opt]
@@ -1093,20 +1126,18 @@ class FitMut_two_anc_sub:
             self.mutant_n_seq_theory[i,:] = mutant_n
             
             # Debug: print for first few adaptive lineages in iteration 2
-            if k_iter == 2 and len(self.s_mean_numerator) > 0:
-                if i == self.idx_adaptive_inferred_index[0]:  # First adaptive lineage
-                    print(f"DEBUG iter 2, lineage {i}: s={self.result_s[i]:.4f}, tau={self.result_tau[i]:.1f}, ancestor={self.lineage_ancestor}")
-                    print(f"  mutant_n at t=0: {mutant_n[0]:.1f}, at t=10: {mutant_n[10]:.1f}")
-                if i == self.idx_adaptive_inferred_index[1]:  # Second adaptive lineage
-                    print(f"DEBUG iter 2, lineage {i}: s={self.result_s[i]:.4f}, tau={self.result_tau[i]:.1f}, ancestor={self.lineage_ancestor}")
-                    print(f"  mutant_n at t=0: {mutant_n[0]:.1f}, at t=10: {mutant_n[10]:.1f}")
+            #if k_iter == 2 and len(self.s_mean_numerator) > 0:
+            #    if i == self.idx_adaptive_inferred_index[0]:  # First adaptive lineage
+            #        print(f"DEBUG iter 2, lineage {i}: s={self.result_s[i]:.4f}, tau={self.result_tau[i]:.1f}, ancestor={self.lineage_ancestor}")
+            #        print(f"  mutant_n at t=0: {mutant_n[0]:.1f}, at t=10: {mutant_n[10]:.1f}")
+            #    if i == self.idx_adaptive_inferred_index[1]:  # Second adaptive lineage
+            #        print(f"DEBUG iter 2, lineage {i}: s={self.result_s[i]:.4f}, tau={self.result_tau[i]:.1f}, ancestor={self.lineage_ancestor}")
+            #        print(f"  mutant_n at t=0: {mutant_n[0]:.1f}, at t=10: {mutant_n[10]:.1f}")
             
             # 2/26: Contribution to mean fitness depends on ancestor:
-            if self.lineage_ancestor == self.reference_ancestor:    # reference strain has lower fitness
-                # A mutants have fitness s (relative to A reference)
+            if self.lineage_ancestor == self.reference_ancestor:
                 fitness_contribution = mutant_n * self.result_s[i]
-            else:  # higher-fitness strain
-                # non-ref mutants have fitness delta_s + s (background + mutation gain)
+            else:
                 fitness_contribution = mutant_n * (self.delta_s + self.result_s[i])
             
             #self.s_mean_numerator += self.mutant_n_seq_theory[i,:] * self.result_s[i]
@@ -1123,7 +1154,6 @@ class FitMut_two_anc_sub:
         for i in range(self.lineages_num):
             # Check if this is a neutral non-ref lineage
             if (self.ancestor_labels[i] != self.reference_ancestor and i not in self.idx_adaptive_inferred_index):
-                # All cells in neutral non-ref lineage contribute delta_s
                 neutral_contribution = self.n_seq[i, :] * self.delta_s
                 self.s_mean_numerator += neutral_contribution
         
@@ -1142,6 +1172,13 @@ class FitMut_two_anc_sub:
             
             # Store mixed mean fitness
             self.s_mean_mix_seq = self.s_mean_mix_numerator / self.cell_depth_list
+            
+        # ---- DEBUG: mean fitness trajectory ----
+        #if self.is_subdivided and k_iter == 0:
+        #    mean_snapshot = self.s_mean_numerator / self.s_mean_denominator
+        #    print("\nDEBUG MEAN FITNESS SNAPSHOT")
+        #    print("first five values:", mean_snapshot[:5])
+        # ---------------------------------------
 
     
     ##########
@@ -1251,8 +1288,8 @@ class FitMut_two_anc_sub:
             self.update_mean_fitness(k_iter)
             
             # Debug: print mean fitness
-            if k_iter <= 3:  # Just first 3 iterations
-                print(f"DEBUG iteration {k_iter}: mean fitness at t=0: {self.s_mean_seq_dict[k_iter][0]:.6f}, at t=10: {self.s_mean_seq_dict[k_iter][10]:.6f}")
+            #if k_iter <= 3:  # Just first 3 iterations
+            #    print(f"DEBUG iteration {k_iter}: mean fitness at t=0: {self.s_mean_seq_dict[k_iter][0]:.6f}, at t=10: {self.s_mean_seq_dict[k_iter][10]:.6f}")
 
             if self.save_steps == True:
                 output_label = '_intermediate_s_' + str(k_iter)

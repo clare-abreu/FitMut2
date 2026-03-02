@@ -76,10 +76,10 @@ delta_s_E2 = calculate_delta_s(r_anc1_E2, r_anc2_E2)
 
 K = 1e9
 DF = 100
-mut_fits1_E1 = np.random.uniform(0.405,0.45,num_muts1)
-mut_fits2_E1 = np.random.uniform(0.405,0.45,num_muts2)
-mut_fits1_E2 = np.random.uniform(0.405,0.45,num_muts1)
-mut_fits2_E2 = np.random.uniform(0.405,0.45,num_muts2)
+mut_fits1_E1 = np.random.normal(r_anc1_E1,0.05*r_anc1_E1,num_muts1)#np.random.uniform(0.405,0.45,num_muts1)
+mut_fits2_E1 = np.random.normal(r_anc2_E1,0.05*r_anc2_E1,num_muts1)#np.random.uniform(0.405,0.45,num_muts2)
+mut_fits1_E2 = np.random.normal(r_anc1_E2,0.05*r_anc1_E2,num_muts1)#np.random.uniform(0.405,0.45,num_muts1)
+mut_fits2_E2 = np.random.normal(r_anc2_E2,0.05*r_anc2_E2,num_muts1)#np.random.uniform(0.405,0.45,num_muts2)
 mut_times1 = random.choices(range(1, tmpts-3), k=num_muts1)
 mut_times2 = random.choices(range(1, tmpts-3), k=num_muts2)
 pre_fits1_E1 = r_anc1_E1*np.ones(L1)
@@ -307,4 +307,214 @@ ax2.grid(alpha=0.3)
 
 plt.tight_layout()
 plt.show()
+
+#%% Compare step 1 and step 2:
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+# Load simulation parameters (from your simulation code)
+L1 = 25000
+L2 = 25000
+num_muts1 = 500
+num_muts2 = 500
+r_anc1_E1 = 0.4
+r_anc2_E1 = 0.42
+r_anc1_E2 = 0.42
+r_anc2_E2 = 0.4
+
+# You need to reload these from your simulation workspace:
+# mut_fits1_E1, mut_fits2_E1, mut_fits1_E2, mut_fits2_E2
+# Or re-run that simulation cell to get them back
+
+# Reconstruct all_fits from simulation
+all_fits_E1 = np.concatenate([
+    np.concatenate([mut_fits1_E1, r_anc1_E1 * np.ones(L1 - num_muts1)]),
+    np.concatenate([mut_fits2_E1, r_anc2_E1 * np.ones(L2 - num_muts2)])
+])
+
+all_fits_E2 = np.concatenate([
+    np.concatenate([mut_fits1_E2, r_anc1_E2 * np.ones(L1 - num_muts1)]),
+    np.concatenate([mut_fits2_E2, r_anc2_E2 * np.ones(L2 - num_muts2)])
+])
+
+# Load inferred results
+results_E1_step1 = pd.read_csv('../test_two_anc_sub_results_E1_step1_MutSeq_Result.csv')
+results_E2_step1 = pd.read_csv('../test_two_anc_sub_results_E2_step1_MutSeq_Result.csv')
+results_E1_step2 = pd.read_csv('../test_two_anc_sub_results_E1_step2_MutSeq_Result.csv')
+results_E2_step2 = pd.read_csv('../test_two_anc_sub_results_E2_step2_MutSeq_Result.csv')
+
+# Ground truth fitness relative to each environment's reference
+# E1: B is fitter (delta_s = +0.05), so A is reference
+true_s_E1 = (all_fits_E1 / r_anc1_E1) - 1  
+
+# E2: A is fitter (delta_s = -0.05), so B is reference  
+true_s_E2 = (all_fits_E2 / r_anc2_E2) - 1
+
+# Masks
+A_mutant_mask = np.arange(L1) < num_muts1
+A_neutral_mask = ~A_mutant_mask
+B_mutant_mask = np.arange(L2) < num_muts2
+B_neutral_mask = ~B_mutant_mask
+
+# Create 2x2 plot
+fig, axes = plt.subplots(2, 2, figsize=(16, 14))
+
+# E1 Step 1
+ax = axes[0, 0]
+ax.scatter(true_s_E1[:L1][A_mutant_mask], results_E1_step1['Fitness'].values[:L1][A_mutant_mask],
+          alpha=0.5, s=20, c='red', label='A mutants')
+ax.scatter(true_s_E1[:L1][A_neutral_mask], results_E1_step1['Fitness'].values[:L1][A_neutral_mask],
+          alpha=0.2, s=10, c='pink', label='A neutrals')
+ax.scatter(true_s_E1[L1:][B_mutant_mask], results_E1_step1['Fitness'].values[L1:][B_mutant_mask],
+          alpha=0.5, s=20, c='blue', label='B mutants')
+ax.scatter(true_s_E1[L1:][B_neutral_mask], results_E1_step1['Fitness'].values[L1:][B_neutral_mask],
+          alpha=0.2, s=10, c='lightblue', label='B neutrals')
+ax.plot([0, 0.15], [0, 0.15], '--k')
+ax.set_xlabel('True fitness (E1)')
+ax.set_ylabel('Inferred fitness')
+ax.set_title('E1 Step 1 (self-approximation)')
+ax.legend()
+ax.grid(alpha=0.3)
+
+# E1 Step 2
+ax = axes[0, 1]
+ax.scatter(true_s_E1[:L1][A_mutant_mask], results_E1_step2['Fitness'].values[:L1][A_mutant_mask],
+          alpha=0.5, s=20, c='red', label='A mutants')
+ax.scatter(true_s_E1[:L1][A_neutral_mask], results_E1_step2['Fitness'].values[:L1][A_neutral_mask],
+          alpha=0.2, s=10, c='pink', label='A neutrals')
+ax.scatter(true_s_E1[L1:][B_mutant_mask], results_E1_step2['Fitness'].values[L1:][B_mutant_mask],
+          alpha=0.5, s=20, c='blue', label='B mutants')
+ax.scatter(true_s_E1[L1:][B_neutral_mask], results_E1_step2['Fitness'].values[L1:][B_neutral_mask],
+          alpha=0.2, s=10, c='lightblue', label='B neutrals')
+ax.plot([0, 0.15], [0, 0.15], '--k')
+ax.set_xlabel('True fitness (E1)')
+ax.set_ylabel('Inferred fitness')
+ax.set_title('E1 Step 2 (refined with E2 info)')
+ax.legend()
+ax.grid(alpha=0.3)
+
+# E2 Step 1
+ax = axes[1, 0]
+ax.scatter(true_s_E2[:L1][A_mutant_mask], results_E2_step1['Fitness'].values[:L1][A_mutant_mask],
+          alpha=0.5, s=20, c='red', label='A mutants')
+ax.scatter(true_s_E2[:L1][A_neutral_mask], results_E2_step1['Fitness'].values[:L1][A_neutral_mask],
+          alpha=0.2, s=10, c='pink', label='A neutrals')
+ax.scatter(true_s_E2[L1:][B_mutant_mask], results_E2_step1['Fitness'].values[L1:][B_mutant_mask],
+          alpha=0.5, s=20, c='blue', label='B mutants')
+ax.scatter(true_s_E2[L1:][B_neutral_mask], results_E2_step1['Fitness'].values[L1:][B_neutral_mask],
+          alpha=0.2, s=10, c='lightblue', label='B neutrals')
+ax.plot([-0.05, 0.10], [-0.05, 0.10], '--k')
+ax.set_xlabel('True fitness (E2)')
+ax.set_ylabel('Inferred fitness')
+ax.set_title('E2 Step 1 (self-approximation)')
+ax.legend()
+ax.grid(alpha=0.3)
+
+# E2 Step 2
+ax = axes[1, 1]
+ax.scatter(true_s_E2[:L1][A_mutant_mask], results_E2_step2['Fitness'].values[:L1][A_mutant_mask],
+          alpha=0.5, s=20, c='red', label='A mutants')
+ax.scatter(true_s_E2[:L1][A_neutral_mask], results_E2_step2['Fitness'].values[:L1][A_neutral_mask],
+          alpha=0.2, s=10, c='pink', label='A neutrals')
+ax.scatter(true_s_E2[L1:][B_mutant_mask], results_E2_step2['Fitness'].values[L1:][B_mutant_mask],
+          alpha=0.5, s=20, c='blue', label='B mutants')
+ax.scatter(true_s_E2[L1:][B_neutral_mask], results_E2_step2['Fitness'].values[L1:][B_neutral_mask],
+          alpha=0.2, s=10, c='lightblue', label='B neutrals')
+ax.plot([-0.05, 0.10], [-0.05, 0.10], '--k')
+ax.set_xlabel('True fitness (E2)')
+ax.set_ylabel('Inferred fitness')
+ax.set_title('E2 Step 2 (refined with E1 info)')
+ax.legend()
+ax.grid(alpha=0.3)
+
+plt.tight_layout()
+plt.show()
+
+
+#%% Plot only step 1: 
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+# Load simulation parameters
+L1 = 25000
+L2 = 25000
+num_muts1 = 500
+num_muts2 = 500
+r_anc1_E1 = 0.4
+r_anc2_E1 = 0.42
+r_anc1_E2 = 0.42
+r_anc2_E2 = 0.4
+
+# Reconstruct all_fits from simulation (need mut_fits arrays from workspace)
+all_fits1_E1 = np.concatenate([mut_fits1_E1, r_anc1_E1 * np.ones(L1 - num_muts1)])
+all_fits2_E1 = np.concatenate([mut_fits2_E1, r_anc2_E1 * np.ones(L2 - num_muts1)])
+
+all_fits1_E2 = np.concatenate([mut_fits1_E2, r_anc1_E2 * np.ones(L1 - num_muts1)])
+all_fits2_E2 = np.concatenate([mut_fits2_E2, r_anc2_E2 * np.ones(L2 - num_muts2)])
+
+# Load Step 1 results
+results_E1_step1 = pd.read_csv('../test_two_anc_sub_results_E1_step1_MutSeq_Result.csv')
+results_E2_step1 = pd.read_csv('../test_two_anc_sub_results_E2_step1_MutSeq_Result.csv')
+
+# Ground truth
+true_s1_E1 = (all_fits1_E1 / r_anc1_E1) - 1  
+true_s2_E1 = (all_fits2_E1 / r_anc2_E1) - 1  
+true_s1_E2 = (all_fits1_E2 / r_anc1_E2) - 1  
+true_s2_E2 = (all_fits2_E2 / r_anc2_E2) - 1
+
+true_s_E1 = np.concatenate([true_s1_E1,true_s2_E1])
+true_s_E2 = np.concatenate([true_s1_E2,true_s2_E2])
+
+# Masks
+A_mutant_mask = np.arange(L1) < num_muts1
+A_neutral_mask = ~A_mutant_mask
+B_mutant_mask = np.arange(L2) < num_muts2
+B_neutral_mask = ~B_mutant_mask
+
+# Create side-by-side plot
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
+
+# E1 Step 1
+ax1.scatter(true_s_E1[:L1][A_mutant_mask], results_E1_step1['Fitness'].values[:L1][A_mutant_mask],
+           alpha=0.5, s=20, c='red', label='A mutants')
+ax1.scatter(true_s_E1[:L1][A_neutral_mask], results_E1_step1['Fitness'].values[:L1][A_neutral_mask],
+           alpha=0.2, s=10, c='pink', label='A neutrals')
+ax1.scatter(true_s_E1[L1:][B_mutant_mask], results_E1_step1['Fitness'].values[L1:][B_mutant_mask],
+           alpha=0.5, s=20, c='blue', label='B mutants')
+ax1.scatter(true_s_E1[L1:][B_neutral_mask], results_E1_step1['Fitness'].values[L1:][B_neutral_mask],
+           alpha=0.2, s=10, c='lightblue', label='B neutrals')
+ax1.plot([0, 0.15], [0, 0.15], '--k')
+ax1.set_xlabel('True fitness (E1, B fitter)')
+ax1.set_ylabel('Inferred fitness')
+ax1.set_title('E1 Step 1')
+ax1.legend()
+ax1.grid(alpha=0.3)
+
+# E2 Step 1
+ax2.scatter(true_s_E2[:L1][A_mutant_mask], results_E2_step1['Fitness'].values[:L1][A_mutant_mask],
+           alpha=0.5, s=20, c='red', label='A mutants')
+ax2.scatter(true_s_E2[:L1][A_neutral_mask], results_E2_step1['Fitness'].values[:L1][A_neutral_mask],
+           alpha=0.2, s=10, c='pink', label='A neutrals')
+ax2.scatter(true_s_E2[L1:][B_mutant_mask], results_E2_step1['Fitness'].values[L1:][B_mutant_mask],
+           alpha=0.5, s=20, c='blue', label='B mutants')
+ax2.scatter(true_s_E2[L1:][B_neutral_mask], results_E2_step1['Fitness'].values[L1:][B_neutral_mask],
+           alpha=0.2, s=10, c='lightblue', label='B neutrals')
+ax2.plot([-0.05, 0.10], [-0.05, 0.10], '--k')
+ax2.set_xlabel('True fitness (E2, A fitter)')
+ax2.set_ylabel('Inferred fitness')
+ax2.set_title('E2 Step 1')
+ax2.legend()
+ax2.grid(alpha=0.3)
+
+plt.tight_layout()
+plt.show()
+
+
+
+
+
+
     

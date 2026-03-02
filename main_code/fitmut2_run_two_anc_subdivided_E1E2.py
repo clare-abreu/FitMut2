@@ -104,6 +104,7 @@ if result.returncode != 0:
     print("ERROR: E2 Step 1 failed")
     sys.exit(1)
 
+"""
 # STEP 2: Run E1 and E2 with other environment's parameters
 print("\n### STEP 2: Refined Analysis ###\n")
 
@@ -138,10 +139,11 @@ result = subprocess.run(cmd_E2_step2)
 if result.returncode != 0:
     print("ERROR: E2 Step 2 failed")
     sys.exit(1)
+"""
 
 print(f"\nStep 1 Results:")
 print(f"  E1: {output_E1}_step1_MutSeq_Result.csv")
 print(f"  E2: {output_E2}_step1_MutSeq_Result.csv")
-print(f"\nStep 2 Results:")
-print(f"  E1: {output_E1}_step2_MutSeq_Result.csv")
-print(f"  E2: {output_E2}_step2_MutSeq_Result.csv")
+#print(f"\nStep 2 Results:")
+#print(f"  E1: {output_E1}_step2_MutSeq_Result.csv")
+#print(f"  E2: {output_E2}_step2_MutSeq_Result.csv")
