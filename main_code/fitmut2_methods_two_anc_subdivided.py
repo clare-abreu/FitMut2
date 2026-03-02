@@ -529,6 +529,43 @@ class FitMut_two_anc_sub:
         established_size = self.establishment_size_scalar(s, tau)
         E_extend_tau = np.interp(tau, self.t_list_extend, self.E_extend)
         
+        # Step 2: Pre-compute E2's growth rates and initialize its trajectory iteratively.
+        # This replaces calculate_other_env_mutant_fraction (continuous formula) with
+        # a trajectory that correctly accounts for E2's periodic dilution by mixing with E1.
+        mutant_n_theory_other = None
+        unmutant_n_theory_other = None
+        n_obs_other_arr = None
+        if self.is_subdivided and self.s_other_array is not None:
+            s_other_i = self.s_other_array[self.current_lineage_index]
+            tau_other_i = self.tau_other_array[self.current_lineage_index]
+            if self.lineage_ancestor == self.reference_ancestor_other:
+                other_mut_rate = s_other_i
+                other_unmut_rate = 0.0
+            else:
+                other_mut_rate = s_other_i + self.delta_s_other
+                other_unmut_rate = self.delta_s_other
+            if self.s_mean_other is not None:
+                s_mean_other_ext = np.concatenate((
+                    np.zeros(len(self.t_list_extend) - self.seq_num),
+                    self.s_mean_other
+                ))
+                s_mean_tau_oi = np.interp(tau_other_i, self.t_list_extend, s_mean_other_ext)
+            else:
+                s_mean_tau_oi = np.interp(tau_other_i, self.t_list_extend, self.s_mean_seq_extend)
+            est_size_other_i = self.noise_c / np.maximum(other_mut_rate - s_mean_tau_oi, 0.005)
+            n_obs_other_arr = self.n_seq_lineage_other
+            mutant_n_theory_other = np.zeros(self.seq_num, dtype=float)
+            unmutant_n_theory_other = np.zeros(self.seq_num, dtype=float)
+            # k=0: bootstrap from continuous formula
+            if (self.t_list[0] >= tau_other_i and self.E_other_extend is not None
+                    and self.E_other_extend_t_list is not None):
+                E_oth_ext_tau = np.interp(tau_other_i, self.t_list_extend, self.E_other_extend)
+                E_other_k0 = self.E_other_extend_t_list[0] / E_oth_ext_tau if E_oth_ext_tau > 0 else 1.0
+                mn0 = est_size_other_i * np.exp(other_mut_rate * (self.t_list[0] - tau_other_i)) * E_other_k0
+                mutant_n_theory_other[0] = np.minimum(mn0, n_obs_other_arr[0])
+            unmutant_n_theory_other[0] = n_obs_other_arr[0] - mutant_n_theory_other[0]
+        
+                
         for k in range(self.seq_num):
             # For each timepoint, calculate lineage growth, split between mutant/unmutant cells:
             E_tk_minus_tau = self.E_extend_t_list[k]/E_extend_tau
@@ -556,12 +593,11 @@ class FitMut_two_anc_sub:
                     
                     # Approximate other environment's mutant/unmutant split
                     if self.s_other_array is not None:
-                        # Step 2: Use other environment's inferred parameters
-                        mutant_frac_other = self.calculate_other_env_mutant_fraction(
-                            self.current_lineage_index, k-1, 
-                            self.s_other_array[self.current_lineage_index],
-                            self.tau_other_array[self.current_lineage_index]
-                        )
+                        # Step 2: Use iteratively-tracked E2 trajectory (pre-computed above).
+                        # This correctly accounts for E2's periodic dilution by mixing with E1,
+                        # unlike calculate_other_env_mutant_fraction which uses the continuous formula.
+                        n_other_mutant = mutant_n_theory_other[k-1]
+                        n_other_unmutant = unmutant_n_theory_other[k-1]
                     else:
                         # Step 1: Assume s=0 in other environment
                         # Mutant fraction in other env = fraction after previous mix
@@ -573,10 +609,8 @@ class FitMut_two_anc_sub:
                         else:
                             # Use stored fraction from previous mix
                             mutant_frac_other = self.prev_mix_mutant_frac
-                    
-                    # Calculate other environment's mutant/unmutant cells
-                    n_other_mutant = n_other_total * mutant_frac_other
-                    n_other_unmutant = n_other_total * (1 - mutant_frac_other)
+                        n_other_mutant = n_other_total * mutant_frac_other
+                        n_other_unmutant = n_other_total * (1 - mutant_frac_other)
                     
                     # Calculate mixed mutant/unmutant populations
                     n_mix_mutant = (mutant_n_theory[k-1] + n_other_mutant) / 2
@@ -620,6 +654,24 @@ class FitMut_two_anc_sub:
                     mutant_frac_grown = n_new_mutant / lineage_size0 if lineage_size0 > 0 else 0.0
                     mutant_n_theory[k] = np.minimum(n_theory[k] * mutant_frac_grown, n_obs[k])
                     unmutant_n_theory[k] = n_obs[k] - mutant_n_theory[k]
+                    
+                # Step 2: Update E2's trajectory for the next step.
+                # E1 and E2 share the same physical mix (n_mix_mutant/unmutant),
+                # so reuse it here but apply E2's growth rates instead of E1's.
+                if self.is_subdivided and self.s_other_array is not None:
+                    other_mut_growth = np.exp(other_mut_rate * dt)
+                    other_unmut_growth = np.exp(other_unmut_rate * dt)
+                    n_new_E2_mut = n_mix_mutant * other_mut_growth
+                    n_new_E2_unmut = n_mix_unmutant * other_unmut_growth
+                    E2_lineage_size = n_new_E2_mut + n_new_E2_unmut
+                    if E2_lineage_size > 0 and self.E_other_extend_t_list[k-1] > 0:
+                        E_other_incr = self.E_other_extend_t_list[k] / self.E_other_extend_t_list[k-1]
+                        n_theory_E2_k = E2_lineage_size * E_other_incr
+                        E2_mutant_frac = n_new_E2_mut / E2_lineage_size
+                        mutant_n_theory_other[k] = np.minimum(n_theory_E2_k * E2_mutant_frac, n_obs_other_arr[k])
+                    else:
+                        mutant_n_theory_other[k] = 0.0
+                    unmutant_n_theory_other[k] = n_obs_other_arr[k] - mutant_n_theory_other[k]
             
         return {'cell_number': n_theory,'mutant_cell_number': mutant_n_theory}
     
@@ -659,6 +711,39 @@ class FitMut_two_anc_sub:
         
         E_extend_tau = np.tile(np.interp(tau_array, self.t_list_extend, self.E_extend), (s_len, 1)) #(s_len, tau_len)
         
+        # Step 2: Pre-compute E2's trajectory as a 3D array (s_len, tau_len, seq_num),
+        # coupled to E1's grid trajectory at each step.
+        mutant_n_theory_other = None
+        unmutant_n_theory_other = None
+        if self.is_subdivided and self.s_other_array is not None:
+            s_other_i = self.s_other_array[self.current_lineage_index]
+            tau_other_i = self.tau_other_array[self.current_lineage_index]
+            if self.lineage_ancestor == self.reference_ancestor_other:
+                other_mut_rate = s_other_i
+                other_unmut_rate = 0.0
+            else:
+                other_mut_rate = s_other_i + self.delta_s_other
+                other_unmut_rate = self.delta_s_other
+            if self.s_mean_other is not None:
+                s_mean_other_ext = np.concatenate((
+                    np.zeros(len(self.t_list_extend) - self.seq_num),
+                    self.s_mean_other
+                ))
+                s_mean_tau_oi = np.interp(tau_other_i, self.t_list_extend, s_mean_other_ext)
+            else:
+                s_mean_tau_oi = np.interp(tau_other_i, self.t_list_extend, self.s_mean_seq_extend)
+            est_size_other_i = self.noise_c / np.maximum(other_mut_rate - s_mean_tau_oi, 0.005)
+            mutant_n_theory_other = np.zeros((s_len, tau_len, self.seq_num), dtype=float)
+            unmutant_n_theory_other = np.zeros((s_len, tau_len, self.seq_num), dtype=float)
+            # k=0: bootstrap from continuous formula (scalar, broadcast to grid)
+            if (self.t_list[0] >= tau_other_i and self.E_other_extend is not None
+                    and self.E_other_extend_t_list is not None):
+                E_oth_ext_tau = np.interp(tau_other_i, self.t_list_extend, self.E_other_extend)
+                E_other_k0 = self.E_other_extend_t_list[0] / E_oth_ext_tau if E_oth_ext_tau > 0 else 1.0
+                mn0 = est_size_other_i * np.exp(other_mut_rate * (self.t_list[0] - tau_other_i)) * E_other_k0
+                mutant_n_theory_other[:, :, 0] = np.minimum(mn0, self.n_seq_lineage_other[0])
+            unmutant_n_theory_other[:, :, 0] = self.n_seq_lineage_other[0] - mutant_n_theory_other[:, :, 0]
+        
         for k in range(self.seq_num):
             E_tk_minus_tau = self.E_extend_t_list[k]/E_extend_tau
             #mutant1 = np.exp(s_matrix * (self.t_list[k] - tau_matrix))
@@ -687,15 +772,9 @@ class FitMut_two_anc_sub:
                     
                     # Determine other environment's mutant/unmutant split
                     if self.s_other_array is not None:
-                        # Step 2: Use inferred parameters from other environment
-                        mutant_frac_other = self.calculate_other_env_mutant_fraction(
-                            self.current_lineage_index, k-1,
-                            self.s_other_array[self.current_lineage_index],
-                            self.tau_other_array[self.current_lineage_index]
-                        )
-                        # Broadcast scalar to grid
-                        n_other_mutant = n_other_total * mutant_frac_other
-                        n_other_unmutant = n_other_total * (1 - mutant_frac_other)
+                        # Step 2: Use iteratively-tracked E2 trajectory (pre-computed above).
+                        n_other_mutant = mutant_n_theory_other[:, :, k-1]
+                        n_other_unmutant = unmutant_n_theory_other[:, :, k-1]
                     else:
                         # Step 1: Assume s=0 in other environment
                         if k == 1 or not hasattr(self, 'prev_mix_mutant_frac_grid'):
@@ -752,6 +831,26 @@ class FitMut_two_anc_sub:
                     mutant_frac_grown = n_new_mutant / np.maximum(lineage_size0, 1e-10)
                     mutant_n_theory[:, :, k] = np.minimum(n_theory[:, :, k] * mutant_frac_grown, n_obs[:, :, k])
                     unmutant_n_theory[:, :, k] = n_obs[:, :, k] - mutant_n_theory[:, :, k]
+                    
+                # Step 2: Update E2's 3D trajectory for the next step.
+                if self.is_subdivided and self.s_other_array is not None:
+                    other_mut_growth = np.exp(other_mut_rate * dt)
+                    other_unmut_growth = np.exp(other_unmut_rate * dt)
+                    n_new_E2_mut = n_mix_mutant * other_mut_growth
+                    n_new_E2_unmut = n_mix_unmutant * other_unmut_growth
+                    E2_lineage_size = n_new_E2_mut + n_new_E2_unmut
+                    if self.E_other_extend_t_list[k-1] > 0:
+                        E_other_incr = self.E_other_extend_t_list[k] / self.E_other_extend_t_list[k-1]
+                        n_theory_E2_k = E2_lineage_size * E_other_incr
+                        E2_mutant_frac = n_new_E2_mut / np.maximum(E2_lineage_size, 1e-10)
+                        mutant_n_theory_other[:, :, k] = np.minimum(
+                            n_theory_E2_k * E2_mutant_frac, self.n_seq_lineage_other[k]
+                        )
+                    else:
+                        mutant_n_theory_other[:, :, k] = 0.0
+                    unmutant_n_theory_other[:, :, k] = (
+                        self.n_seq_lineage_other[k] - mutant_n_theory_other[:, :, k]
+                    )
     
         return {'cell_number': n_theory,'mutant_cell_number': mutant_n_theory}
 

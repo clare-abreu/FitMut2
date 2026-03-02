@@ -76,10 +76,10 @@ delta_s_E2 = calculate_delta_s(r_anc1_E2, r_anc2_E2)
 
 K = 1e9
 DF = 100
-mut_fits1_E1 = np.random.normal(r_anc1_E1,0.05*r_anc1_E1,num_muts1)#np.random.uniform(0.405,0.45,num_muts1)
-mut_fits2_E1 = np.random.normal(r_anc2_E1,0.05*r_anc2_E1,num_muts1)#np.random.uniform(0.405,0.45,num_muts2)
-mut_fits1_E2 = np.random.normal(r_anc1_E2,0.05*r_anc1_E2,num_muts1)#np.random.uniform(0.405,0.45,num_muts1)
-mut_fits2_E2 = np.random.normal(r_anc2_E2,0.05*r_anc2_E2,num_muts1)#np.random.uniform(0.405,0.45,num_muts2)
+mut_fits1_E1 = np.random.exponential(.01,num_muts1)+r_anc1_E1#np.random.normal(r_anc1_E1,0.05*r_anc1_E1,num_muts1)#np.random.uniform(0.405,0.45,num_muts1)
+mut_fits2_E1 = np.random.exponential(.01,num_muts2)+r_anc2_E1#np.random.normal(r_anc2_E1,0.05*r_anc2_E1,num_muts1)#np.random.uniform(0.405,0.45,num_muts2)
+mut_fits1_E2 = np.random.exponential(.01,num_muts1)+r_anc1_E2#np.random.normal(r_anc1_E2,0.05*r_anc1_E2,num_muts1)#np.random.uniform(0.405,0.45,num_muts1)
+mut_fits2_E2 = np.random.exponential(.01,num_muts2)+r_anc2_E2#np.random.normal(r_anc2_E2,0.05*r_anc2_E2,num_muts1)#np.random.uniform(0.405,0.45,num_muts2)
 mut_times1 = random.choices(range(1, tmpts-3), k=num_muts1)
 mut_times2 = random.choices(range(1, tmpts-3), k=num_muts2)
 pre_fits1_E1 = r_anc1_E1*np.ones(L1)
