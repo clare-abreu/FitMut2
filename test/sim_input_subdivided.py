@@ -323,20 +323,12 @@ r_anc2_E1 = 0.42
 r_anc1_E2 = 0.42
 r_anc2_E2 = 0.4
 
-# You need to reload these from your simulation workspace:
-# mut_fits1_E1, mut_fits2_E1, mut_fits1_E2, mut_fits2_E2
-# Or re-run that simulation cell to get them back
+# Reconstruct all_fits from simulation (need mut_fits arrays from workspace)
+all_fits1_E1 = np.concatenate([mut_fits1_E1, r_anc1_E1 * np.ones(L1 - num_muts1)])
+all_fits2_E1 = np.concatenate([mut_fits2_E1, r_anc2_E1 * np.ones(L2 - num_muts1)])
 
-# Reconstruct all_fits from simulation
-all_fits_E1 = np.concatenate([
-    np.concatenate([mut_fits1_E1, r_anc1_E1 * np.ones(L1 - num_muts1)]),
-    np.concatenate([mut_fits2_E1, r_anc2_E1 * np.ones(L2 - num_muts2)])
-])
-
-all_fits_E2 = np.concatenate([
-    np.concatenate([mut_fits1_E2, r_anc1_E2 * np.ones(L1 - num_muts1)]),
-    np.concatenate([mut_fits2_E2, r_anc2_E2 * np.ones(L2 - num_muts2)])
-])
+all_fits1_E2 = np.concatenate([mut_fits1_E2, r_anc1_E2 * np.ones(L1 - num_muts1)])
+all_fits2_E2 = np.concatenate([mut_fits2_E2, r_anc2_E2 * np.ones(L2 - num_muts2)])
 
 # Load inferred results
 results_E1_step1 = pd.read_csv('../test_two_anc_sub_results_E1_step1_MutSeq_Result.csv')
@@ -345,11 +337,13 @@ results_E1_step2 = pd.read_csv('../test_two_anc_sub_results_E1_step2_MutSeq_Resu
 results_E2_step2 = pd.read_csv('../test_two_anc_sub_results_E2_step2_MutSeq_Result.csv')
 
 # Ground truth fitness relative to each environment's reference
-# E1: B is fitter (delta_s = +0.05), so A is reference
-true_s_E1 = (all_fits_E1 / r_anc1_E1) - 1  
+true_s1_E1 = (all_fits1_E1 / r_anc1_E1) - 1  
+true_s2_E1 = (all_fits2_E1 / r_anc2_E1) - 1  
+true_s1_E2 = (all_fits1_E2 / r_anc1_E2) - 1  
+true_s2_E2 = (all_fits2_E2 / r_anc2_E2) - 1
 
-# E2: A is fitter (delta_s = -0.05), so B is reference  
-true_s_E2 = (all_fits_E2 / r_anc2_E2) - 1
+true_s_E1 = np.concatenate([true_s1_E1,true_s2_E1])
+true_s_E2 = np.concatenate([true_s1_E2,true_s2_E2])
 
 # Masks
 A_mutant_mask = np.arange(L1) < num_muts1

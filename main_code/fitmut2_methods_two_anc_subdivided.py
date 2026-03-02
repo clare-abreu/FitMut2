@@ -595,7 +595,9 @@ class FitMut_two_anc_sub:
                         unmutant_growth = np.exp(self.delta_s * dt)
                         mutant_growth = np.exp((s + self.delta_s) * dt)
                     
-                    lineage_size0 = (n_mix_unmutant * unmutant_growth + n_mix_mutant * mutant_growth)
+                    n_new_mutant = n_mix_mutant * mutant_growth
+                    n_new_unmutant = n_mix_unmutant * unmutant_growth
+                    lineage_size0 = n_new_mutant + n_new_unmutant
                 
                 else:
                     # Original two-ancestor logic (no mixing)
@@ -610,6 +612,14 @@ class FitMut_two_anc_sub:
                     #lineage_size0 = (unmutant_n_theory[k-1] * unmutant_growth + mutant_n_theory[k-1] * mutant_growth)
                 
                 n_theory[k] = lineage_size0 * E_tk_minus_tkminus1
+                
+                # For subdivided: override mutant_n_theory[k] with iterative mixing dynamics.
+                # The mutant3 formula (set above) assumes continuous growth and ignores
+                # periodic mixing dilution. Using the mixing dynamics is more accurate.
+                if self.is_subdivided:
+                    mutant_frac_grown = n_new_mutant / lineage_size0 if lineage_size0 > 0 else 0.0
+                    mutant_n_theory[k] = np.minimum(n_theory[k] * mutant_frac_grown, n_obs[k])
+                    unmutant_n_theory[k] = n_obs[k] - mutant_n_theory[k]
             
         return {'cell_number': n_theory,'mutant_cell_number': mutant_n_theory}
     
@@ -716,8 +726,9 @@ class FitMut_two_anc_sub:
                         total_fitness_matrix = s_matrix + self.delta_s
                         mutant_growth_matrix = np.exp(total_fitness_matrix * dt)
                     
-                    lineage_size0 = (n_mix_unmutant * unmutant_growth + 
-                                    n_mix_mutant * mutant_growth_matrix)
+                    n_new_mutant = n_mix_mutant * mutant_growth_matrix
+                    n_new_unmutant = n_mix_unmutant * unmutant_growth
+                    lineage_size0 = n_new_mutant + n_new_unmutant
                 
                 else:
                     # Original two-ancestor logic (no mixing)
@@ -735,6 +746,12 @@ class FitMut_two_anc_sub:
                     #lineage_size0 = (unmutant_n_theory[:, :, k-1] * unmutant_growth + mutant_n_theory[:, :, k-1] * mutant_growth_matrix)
                 
                 n_theory[:, :, k] = lineage_size0 * E_tk_minus_tkminus1
+                
+                # For subdivided: override mutant_n_theory with iterative mixing dynamics.
+                if self.is_subdivided:
+                    mutant_frac_grown = n_new_mutant / np.maximum(lineage_size0, 1e-10)
+                    mutant_n_theory[:, :, k] = np.minimum(n_theory[:, :, k] * mutant_frac_grown, n_obs[:, :, k])
+                    unmutant_n_theory[:, :, k] = n_obs[:, :, k] - mutant_n_theory[:, :, k]
     
         return {'cell_number': n_theory,'mutant_cell_number': mutant_n_theory}
 
