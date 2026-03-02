@@ -672,6 +672,15 @@ class FitMut_two_anc_sub:
                     else:
                         mutant_n_theory_other[k] = 0.0
                     unmutant_n_theory_other[k] = n_obs_other_arr[k] - mutant_n_theory_other[k]
+                    
+                    # DEBUG: compare iterative vs continuous formula for lineage 0
+                    if self.current_lineage_index == 0:
+                        old_frac = self.calculate_other_env_mutant_fraction(
+                            0, k, self.s_other_array[0], self.tau_other_array[0]
+                        )
+                        n_obs_k = n_obs_other_arr[k]
+                        new_frac = mutant_n_theory_other[k] / n_obs_k if n_obs_k > 0 else 0.0
+                        print(f"  DEBUG E2 traj k={k}: old_frac={old_frac:.4f}  new_frac={new_frac:.4f}  ancestor={self.lineage_ancestor}")
             
         return {'cell_number': n_theory,'mutant_cell_number': mutant_n_theory}
     
@@ -775,6 +784,11 @@ class FitMut_two_anc_sub:
                         # Step 2: Use iteratively-tracked E2 trajectory (pre-computed above).
                         n_other_mutant = mutant_n_theory_other[:, :, k-1]
                         n_other_unmutant = unmutant_n_theory_other[:, :, k-1]
+                        # DEBUG: shape and value check
+                        if k == 1 and self.current_lineage_index == 0:
+                            assert n_other_mutant.shape == (s_len, tau_len), \
+                                f"Shape mismatch: {n_other_mutant.shape} != ({s_len}, {tau_len})"
+                            print(f"  DEBUG array E2 k=0 mutant count: min={n_other_mutant.min():.2f}  max={n_other_mutant.max():.2f}  ancestor={self.lineage_ancestor}")
                     else:
                         # Step 1: Assume s=0 in other environment
                         if k == 1 or not hasattr(self, 'prev_mix_mutant_frac_grid'):
