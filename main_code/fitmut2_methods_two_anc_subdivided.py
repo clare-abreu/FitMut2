@@ -673,14 +673,15 @@ class FitMut_two_anc_sub:
                         mutant_n_theory_other[k] = 0.0
                     unmutant_n_theory_other[k] = n_obs_other_arr[k] - mutant_n_theory_other[k]
                     
-                    # DEBUG: compare iterative vs continuous formula for lineage 0
-                    if self.current_lineage_index == 0:
+                    # DEBUG: compare iterative vs continuous formula for non-reference lineages
+                    if self.lineage_ancestor != self.reference_ancestor and self.current_lineage_index < 5:
+                        idx = self.current_lineage_index
                         old_frac = self.calculate_other_env_mutant_fraction(
-                            0, k, self.s_other_array[0], self.tau_other_array[0]
+                            idx, k, self.s_other_array[idx], self.tau_other_array[idx]
                         )
                         n_obs_k = n_obs_other_arr[k]
                         new_frac = mutant_n_theory_other[k] / n_obs_k if n_obs_k > 0 else 0.0
-                        print(f"  DEBUG E2 traj k={k}: old_frac={old_frac:.4f}  new_frac={new_frac:.4f}  ancestor={self.lineage_ancestor}")
+                        print(f"  DEBUG E2 traj lineage={idx} k={k}: old_frac={old_frac:.4f}  new_frac={new_frac:.4f}  ancestor={self.lineage_ancestor}")
             
         return {'cell_number': n_theory,'mutant_cell_number': mutant_n_theory}
     
@@ -999,15 +1000,6 @@ class FitMut_two_anc_sub:
         """
         integrand_log = self.posterior_loglikelihood_array(s_array, tau_array)
         
-        # Debug: for lineage 0 only
-        #if not hasattr(self, '_debug_printed_lineage_0'):
-        #    self._debug_printed_lineage_0 = False
-        
-        #if not self._debug_printed_lineage_0:
-        #    max_val = np.max(integrand_log)
-        #    s_idx, tau_idx = np.unravel_index(np.argmax(integrand_log), np.shape(integrand_log))
-        #    print(f"  Lineage 0 Grid max: {max_val:.2f} at s={s_array[s_idx]:.4f}, tau={tau_array[tau_idx]:.1f}")
-        #    self._debug_printed_lineage_0 = True
         
         log_amp_factor = -np.max(integrand_log) + 2
         amp_integrand = np.exp(integrand_log + log_amp_factor)
@@ -1265,15 +1257,7 @@ class FitMut_two_anc_sub:
             mutant_n = self.n_theory_scalar(self.result_s[i], self.result_tau[i])['mutant_cell_number']
             self.mutant_n_seq_theory[i,:] = mutant_n
             
-            # Debug: print for first few adaptive lineages in iteration 2
-            #if k_iter == 2 and len(self.s_mean_numerator) > 0:
-            #    if i == self.idx_adaptive_inferred_index[0]:  # First adaptive lineage
-            #        print(f"DEBUG iter 2, lineage {i}: s={self.result_s[i]:.4f}, tau={self.result_tau[i]:.1f}, ancestor={self.lineage_ancestor}")
-            #        print(f"  mutant_n at t=0: {mutant_n[0]:.1f}, at t=10: {mutant_n[10]:.1f}")
-            #    if i == self.idx_adaptive_inferred_index[1]:  # Second adaptive lineage
-            #        print(f"DEBUG iter 2, lineage {i}: s={self.result_s[i]:.4f}, tau={self.result_tau[i]:.1f}, ancestor={self.lineage_ancestor}")
-            #        print(f"  mutant_n at t=0: {mutant_n[0]:.1f}, at t=10: {mutant_n[10]:.1f}")
-            
+
             # 2/26: Contribution to mean fitness depends on ancestor:
             if self.lineage_ancestor == self.reference_ancestor:
                 fitness_contribution = mutant_n * self.result_s[i]
@@ -1316,13 +1300,6 @@ class FitMut_two_anc_sub:
             self.s_mean_mix_seq = s_mean_mix_numerator / self.cell_depth_list
 
             
-        # ---- DEBUG: mean fitness trajectory ----
-        #if self.is_subdivided and k_iter == 0:
-        #    mean_snapshot = self.s_mean_numerator / self.s_mean_denominator
-        #    print("\nDEBUG MEAN FITNESS SNAPSHOT")
-        #    print("first five values:", mean_snapshot[:5])
-        # ---------------------------------------
-
     
     ##########
     def run_iteration(self):
