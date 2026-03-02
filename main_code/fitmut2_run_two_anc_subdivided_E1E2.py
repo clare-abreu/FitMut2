@@ -82,6 +82,7 @@ cmd_E1_step1 = [
     '-i', args.input_E1,
     '-io', args.input_E2,
     '-ds', str(args.delta_s_E1),
+    '-dso', str(args.delta_s_E2),  # ← ADD THIS LINE
     '-o', output_E1
 ] + common_args
 
@@ -96,6 +97,7 @@ cmd_E2_step1 = [
     '-i', args.input_E2,
     '-io', args.input_E1,
     '-ds', str(args.delta_s_E2),
+    '-dso', str(args.delta_s_E1),  # ← ADD THIS LINE
     '-o', output_E2
 ] + common_args
 

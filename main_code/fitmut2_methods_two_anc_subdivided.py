@@ -496,16 +496,6 @@ class FitMut_two_anc_sub:
 
         s_mean_tau = np.tile(np.interp(tau_array, self.t_list_extend, self.s_mean_seq_extend), (s_len, 1)) #(s_len, tau_len)
         
-        # Debug mean fitness at tau=0
-        if not hasattr(self, '_debug_mean_fitness_tau0'):
-            tau_idx_0 = np.argmin(np.abs(tau_array - 0))
-            print(f"\nDEBUG MEAN FITNESS:")
-            print(f"  tau=0: s_mean_tau = {s_mean_tau[0, tau_idx_0]:.6f}")
-            print(f"  This lineage ancestor: {self.lineage_ancestor}")
-            print(f"  Reference ancestor: {self.reference_ancestor}")
-            print(f"  delta_s: {self.delta_s}")
-            self._debug_mean_fitness_tau0 = True
-        
         # Debug:
         #if not hasattr(self, '_debug_s_mean_tau'):
         #    s_idx = np.argmin(np.abs(s_array - 0.10))
@@ -573,9 +563,16 @@ class FitMut_two_anc_sub:
                             self.tau_other_array[self.current_lineage_index]
                         )
                     else:
-                        # Step 1: Use this environment's fraction as approximation
-                        n_this_total = n_obs[k-1]
-                        mutant_frac_other = mutant_n_theory[k-1] / n_this_total if n_this_total > 0 else 0
+                        # Step 1: Assume s=0 in other environment
+                        # Mutant fraction in other env = fraction after previous mix
+                        # (stays constant during growth since s=0)
+                        if k == 1 or not hasattr(self, 'prev_mix_mutant_frac'):
+                            # First timepoint: use this environment's fraction
+                            n_this_total = n_obs[0]
+                            mutant_frac_other = mutant_n_theory[0] / n_this_total if n_this_total > 0 else 0
+                        else:
+                            # Use stored fraction from previous mix
+                            mutant_frac_other = self.prev_mix_mutant_frac
                     
                     # Calculate other environment's mutant/unmutant cells
                     n_other_mutant = n_other_total * mutant_frac_other
@@ -584,6 +581,10 @@ class FitMut_two_anc_sub:
                     # Calculate mixed mutant/unmutant populations
                     n_mix_mutant = (mutant_n_theory[k-1] + n_other_mutant) / 2
                     n_mix_unmutant = (unmutant_n_theory[k-1] + n_other_unmutant) / 2
+                    
+                    # Store mutant fraction after this mix for next iteration's E2 approximation
+                    n_mix_total = n_mix_mutant + n_mix_unmutant
+                    self.prev_mix_mutant_frac = n_mix_mutant / n_mix_total if n_mix_total > 0 else 0
                     
                     # Grow from mix in this environment
                     # 2/26 update: Use reference_ancestor logic instead of checking for 'B'
@@ -594,8 +595,7 @@ class FitMut_two_anc_sub:
                         unmutant_growth = np.exp(self.delta_s * dt)
                         mutant_growth = np.exp((s + self.delta_s) * dt)
                     
-                    lineage_size0 = (n_mix_unmutant * unmutant_growth + 
-                                    n_mix_mutant * mutant_growth)
+                    lineage_size0 = (n_mix_unmutant * unmutant_growth + n_mix_mutant * mutant_growth)
                 
                 else:
                     # Original two-ancestor logic (no mixing)
@@ -687,8 +687,14 @@ class FitMut_two_anc_sub:
                         n_other_mutant = n_other_total * mutant_frac_other
                         n_other_unmutant = n_other_total * (1 - mutant_frac_other)
                     else:
-                        # Step 1: Use each grid point's own fraction
-                        mutant_frac_grid = mutant_n_theory[:, :, k-1] / np.maximum(n_obs[:, :, k-1], 1)
+                        # Step 1: Assume s=0 in other environment
+                        if k == 1 or not hasattr(self, 'prev_mix_mutant_frac_grid'):
+                            # First timepoint: use this environment's fraction
+                            mutant_frac_grid = mutant_n_theory[:, :, 0] / np.maximum(n_obs[:, :, 0], 1)
+                        else:
+                            # Use stored fraction from previous mix
+                            mutant_frac_grid = self.prev_mix_mutant_frac_grid
+                        
                         # Broadcast scalar × grid
                         n_other_mutant = n_other_total * mutant_frac_grid
                         n_other_unmutant = n_other_total * (1 - mutant_frac_grid)
@@ -696,6 +702,10 @@ class FitMut_two_anc_sub:
                     # Calculate mixed populations
                     n_mix_mutant = (mutant_n_theory[:, :, k-1] + n_other_mutant) / 2
                     n_mix_unmutant = (unmutant_n_theory[:, :, k-1] + n_other_unmutant) / 2
+                    
+                    # Store mutant fraction after this mix for next iteration
+                    n_mix_total = n_mix_mutant + n_mix_unmutant
+                    self.prev_mix_mutant_frac_grid = n_mix_mutant / np.maximum(n_mix_total, 1e-10)
                     
                     # Grow from mix using reference ancestor logic
                     if self.lineage_ancestor == self.reference_ancestor:

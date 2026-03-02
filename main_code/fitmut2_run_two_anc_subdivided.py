@@ -31,6 +31,8 @@ parser.add_argument('-al', '--ancestor_labels', required=True,
                    help='Ancestor labels CSV (A or B for each lineage)')
 parser.add_argument('-ds', '--delta_s', required=True, type=float,
                    help='Fitness difference in this environment (can be negative)')
+parser.add_argument('-dso', '--delta_s_other', required=True, type=float,
+                   help='Fitness difference in other environment (can be negative)')
 parser.add_argument('-dt', '--delta_t', required=True, type=float,
                    help='Generations per cycle')
 parser.add_argument('-o', '--output', required=True,
@@ -106,6 +108,7 @@ my_obj = FitMut_two_anc_sub(
             ancestor_labels=ancestor_labels,
             delta_s=args.delta_s,
             kappa_value=args.kappa_value,
+            delta_s_other=args.delta_s_other,
             is_subdivided=True,
             r_seq_other=r_seq_other,
             other_env_params=other_env_params,
