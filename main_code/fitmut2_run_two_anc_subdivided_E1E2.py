@@ -106,7 +106,7 @@ if result.returncode != 0:
     print("ERROR: E2 Step 1 failed")
     sys.exit(1)
 
-"""
+
 # STEP 2: Run E1 and E2 with other environment's parameters
 print("\n### STEP 2: Refined Analysis ###\n")
 
@@ -116,6 +116,7 @@ cmd_E1_step2 = [
     '-i', args.input_E1,
     '-io', args.input_E2,
     '-ds', str(args.delta_s_E1),
+    '-dso', str(args.delta_s_E2), 
     '-op', f"{output_E2}_step1_MutSeq_Result.csv",
     '-omf', f"{output_E2}_step1_Mean_fitness_Result.csv",
     '-o', output_E1
@@ -132,6 +133,7 @@ cmd_E2_step2 = [
     '-i', args.input_E2,
     '-io', args.input_E1,
     '-ds', str(args.delta_s_E2),
+    '-dso', str(args.delta_s_E1),
     '-op', f"{output_E1}_step1_MutSeq_Result.csv",
     '-omf', f"{output_E1}_step1_Mean_fitness_Result.csv",
     '-o', output_E2
@@ -141,7 +143,7 @@ result = subprocess.run(cmd_E2_step2)
 if result.returncode != 0:
     print("ERROR: E2 Step 2 failed")
     sys.exit(1)
-"""
+
 
 print(f"\nStep 1 Results:")
 print(f"  E1: {output_E1}_step1_MutSeq_Result.csv")

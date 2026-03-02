@@ -1171,17 +1171,20 @@ class FitMut_two_anc_sub:
         self.mutant_fraction_dict[k_iter] = self.mutant_fraction_numerator/self.cell_depth_list
         
         # 2/26 update: For subdivided, calculate mixed mean fitness
+        # Compute post-mix mean fitness directly from n_seq_other using this env's fitnesses.
+        # Works for both Step 1 and Step 2 since n_seq_other is always available.
         if self.is_subdivided:
-            if self.s_mean_other is not None:
-                # Step 2: Add actual other environment's contribution
-                other_env_contribution = self.s_mean_other * self.cell_depth_list
-                self.s_mean_mix_numerator = (self.s_mean_numerator + other_env_contribution) / 2
-            else:
-                # Step 1: Use only this environment (approximation)
-                self.s_mean_mix_numerator = self.s_mean_numerator
-            
-            # Store mixed mean fitness
-            self.s_mean_mix_seq = self.s_mean_mix_numerator / self.cell_depth_list
+            s_mean_mix_numerator = np.zeros(self.seq_num, dtype=float)
+            # Ancestor baseline: non-reference cells contribute delta_s in this env
+            for i in range(self.lineages_num):
+                n_mix_i = (self.n_seq[i, :] + self.n_seq_other[i, :]) / 2
+                if self.ancestor_labels[i] != self.reference_ancestor:
+                    s_mean_mix_numerator += n_mix_i * self.delta_s
+            # Mutant extra fitness: adaptive lineages contribute s above their baseline
+            for i in self.idx_adaptive_inferred_index:
+                s_mean_mix_numerator += self.mutant_n_seq_theory[i, :] * self.result_s[i]
+            self.s_mean_mix_seq = s_mean_mix_numerator / self.cell_depth_list
+
             
         # ---- DEBUG: mean fitness trajectory ----
         #if self.is_subdivided and k_iter == 0:
